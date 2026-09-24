@@ -35,11 +35,21 @@ def worker_batches(n,workers,worker,reference_total=None):
 
 
 def choose_gpus(allowed,count=8):
-    raw=subprocess.check_output(['nvidia-smi','--query-gpu=index,uuid,memory.free',
-                                 '--format=csv,noheader,nounits'],text=True,timeout=10)
+    fields='index,uuid,memory.free,gpu_recovery_action'
+    command=['nvidia-smi',f'--query-gpu={fields}','--format=csv,noheader,nounits']
+    try:
+        raw=subprocess.check_output(command,text=True,timeout=10)
+    except subprocess.CalledProcessError:
+        # Older drivers may not provide the recovery-action field.
+        command[1]='--query-gpu=index,uuid,memory.free'
+        raw=subprocess.check_output(command,text=True,timeout=10)
     cards=[]
     for line in raw.splitlines():
-        index,uuid,free=(v.strip() for v in line.split(','))
+        values=[v.strip() for v in line.split(',')]
+        index,uuid,free=values[:3]
+        recovery=values[3].lower() if len(values)==4 else 'n/a'
+        if recovery not in ('none','n/a'):
+            continue  # nvidia-smi can report free memory on a GPU needing reset.
         if (index in allowed or uuid in allowed) and int(free)>=15*1024:
             cards.append((int(free),uuid))
     return [uuid for _,uuid in sorted(cards,reverse=True)[:count]]

@@ -25,11 +25,20 @@ class AsyncTopPEval:
         self.next_admission_check=time.monotonic()+30
         allowed=os.environ.get('CUDA_VISIBLE_DEVICES','').split(',') if self.gpu=='auto' else [self.gpu]
         try:
-            text=subprocess.check_output(['nvidia-smi','--query-gpu=index,uuid,memory.free',
-                                          '--format=csv,noheader,nounits'],text=True,timeout=5)
+            command=['nvidia-smi','--query-gpu=index,uuid,memory.free,gpu_recovery_action',
+                     '--format=csv,noheader,nounits']
+            try:
+                text=subprocess.check_output(command,text=True,timeout=5)
+            except subprocess.CalledProcessError:
+                command[1]='--query-gpu=index,uuid,memory.free'
+                text=subprocess.check_output(command,text=True,timeout=5)
             cards=[]
             for line in text.splitlines():
-                index,uuid,free=(part.strip() for part in line.split(','))
+                values=[part.strip() for part in line.split(',')]
+                index,uuid,free=values[:3]
+                recovery=values[3].lower() if len(values)==4 else 'n/a'
+                if recovery not in ('none','n/a'):
+                    continue
                 if index in allowed or uuid in allowed: cards.append((int(free),uuid))
             best=max(cards,default=(0,None))
             chosen=best[1] if best[0]>=20*1024 else None

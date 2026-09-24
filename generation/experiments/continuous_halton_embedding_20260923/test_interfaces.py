@@ -63,7 +63,7 @@ def run(args):
     if not all(p.grad is not None and torch.isfinite(p.grad).all() for p in adapter.parameters()):
         raise RuntimeError('invalid adapter gradient')
     atomic_json(args.output,dict(status='passed',logits_max_abs_diff=diff,
-        objective_loss=float(new_loss),adapter_loss=float(a_loss),initialization=init,
+        objective_loss=float(new_loss.detach()),adapter_loss=float(a_loss.detach()),initialization=init,
         adapter_parameters=sum(p.numel() for p in adapter.parameters()),
         context_gradients=False,sampling_trace=trace,
         peak_reserved_gib=torch.cuda.max_memory_reserved(device)/1024**3 if device.type=='cuda' else None))
