@@ -115,7 +115,7 @@ def run(args):
         atomic_json(out / 'config.json', config)
         import wandb
         wb = wandb.init(project=args.wandb_project, name=out.name, dir=str(out), config=config,
-                        mode='disabled' if args.smoke else 'online')
+                        mode='disabled' if args.smoke else args.wandb_mode)
         wb.define_metric('train/step'); wb.define_metric('train/*', step_metric='train/step')
         wb.define_metric('eval/step'); wb.define_metric('eval/*', step_metric='eval/step')
         atomic_json(out / 'wandb.json', dict(id=wb.id, url=wb.url, smoke=args.smoke))
@@ -208,6 +208,7 @@ if __name__ == '__main__':
     p.add_argument('--save-every', type=int, default=1000)
     p.add_argument('--memory-fraction', type=float, default=.92)
     p.add_argument('--min-free-gib', type=float, default=75.)
+    p.add_argument('--wandb-mode',choices=('offline','online','disabled'),default='offline')
     p.add_argument('--wandb-project', default='mixtok-continuous-halton')
     p.add_argument('--smoke', action='store_true')
     args = p.parse_args()

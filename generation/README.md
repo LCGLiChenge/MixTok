@@ -6,7 +6,7 @@ This directory contains the **continuous embedding** generation path. The offici
 
 ## Requirements
 
-- Python 3.10, eight H20 GPUs, PyTorch 2.10.0, torchvision 0.25.0, and the packages in [`requirements-h20.txt`](requirements-h20.txt) and [`constraints-h20.txt`](constraints-h20.txt). Training uses W&B online login.
+- Python 3.10, eight H20 GPUs, PyTorch 2.10.0, torchvision 0.25.0, and the packages in [`requirements-h20.txt`](requirements-h20.txt) and [`constraints-h20.txt`](constraints-h20.txt). Training logs to W&B offline by default; online logging is optional.
 - Official Halton-MaskGIT source and `ImageNet_256_base.pth` from [`llvictorll/Halton-MaskGIT`](https://huggingface.co/llvictorll/Halton-MaskGIT). The required checkpoint SHA-256 is `7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f`.
 - Official TiTok-L32 weights and the evaluated top-p reconstruction checkpoint at step 247482, loaded from `model_ema`. The top-p checkpoint SHA-256 is `61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819`. Training uses the full checkpoint; [`export_top_p_inference.py`](experiments/continuous_halton_embedding_20260923/export_top_p_inference.py) can make a smaller inference-only copy.
 - The accepted 1D-feature top-p scorer checkpoint and the paired ImageNet top-p GT code cache, including both cached augmentations. The cache contains `titok_codes.npy`, `llamagen_codes.npy`, `labels.npy`, and `meta.json`.

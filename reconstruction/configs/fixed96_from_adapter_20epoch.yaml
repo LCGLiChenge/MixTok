@@ -158,7 +158,7 @@ wandb: true
 wandb_project: MoT
 wandb_name: mot_fixed96_from_adapter2p5_20epoch_bs24_ganstart15
 wandb_entity: ''
-wandb_mode: ''
+wandb_mode: offline
 wandb_tags:
 - h200
 - 8gpu

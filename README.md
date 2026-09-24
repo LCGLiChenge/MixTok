@@ -138,7 +138,7 @@ The 50k config writes `results/top_p_eval_50000.json`. Its `no_ssim: true` setti
 
 Generation uses **continuous embedding**. It needs the same evaluated top-p reconstruction checkpoint, the accepted 1D-feature scorer, a paired top-p GT code cache, a teacher-proxy cache for adapter training targets, and a route-only cache for sparse 2D training. See the [generation guide](generation/README.md) for the cache contract and source layout.
 
-Use a separate Python 3.10/CUDA environment with PyTorch **2.10.0**, torchvision **0.25.0**, and the packages in [`requirements-h20.txt`](generation/requirements-h20.txt) and [`constraints-h20.txt`](generation/constraints-h20.txt). The training scripts target eight H20 GPUs and require W&B online login. From `generation/`, `python -m h20.preflight --environment-only` checks the pinned runtime versions.
+Use a separate Python 3.10/CUDA environment with PyTorch **2.10.0**, torchvision **0.25.0**, and the packages in [`requirements-h20.txt`](generation/requirements-h20.txt) and [`constraints-h20.txt`](generation/constraints-h20.txt). The training scripts target eight H20 GPUs and log to W&B offline by default; online logging is optional. From `generation/`, `python -m h20.preflight --environment-only` checks the pinned runtime versions.
 
 After supplying the external assets, run these commands from the repository root. The `MOTAR_*` environment variable names are part of the script interface:
 

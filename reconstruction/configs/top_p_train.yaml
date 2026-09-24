@@ -163,7 +163,7 @@ wandb: true
 wandb_project: MoT
 wandb_name: mot_top_p_from_fixed_6epoch
 wandb_entity: ''
-wandb_mode: online
+wandb_mode: offline
 wandb_tags:
 - h200
 - 8gpu

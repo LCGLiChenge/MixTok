@@ -244,7 +244,7 @@ def run(args):
     if rank == 0:
         import wandb
         run_wandb=wandb.init(project=args.wandb_project,name=out.name,dir=str(out),
-                             mode='disabled' if args.smoke else 'online',config=config)
+                             mode='disabled' if args.smoke else args.wandb_mode,config=config)
         run_wandb.define_metric('train/step')
         run_wandb.define_metric('train/*',step_metric='train/step')
         run_wandb.define_metric('eval/checkpoint_step')
@@ -401,6 +401,7 @@ if __name__ == "__main__":
     p.add_argument('--eval-stage2-steps',type=int,choices=(1,2,4,6,8,16,32),default=8)
     p.add_argument('--extra-eval-steps',default='2000,4000,8000,12000,16000,20000',
                    help='Comma-separated update numbers for additional async 5k evals')
+    p.add_argument('--wandb-mode',choices=('offline','online','disabled'),default='offline')
     p.add_argument('--wandb-project',default='mixtok-continuous-halton')
     p.add_argument("--min-free-gib", type=float, default=40.)
     p.add_argument("--memory-fraction", type=float, default=.92)
