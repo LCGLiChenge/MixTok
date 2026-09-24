@@ -9,10 +9,10 @@ from bert2d.paths import atomic_json
 
 
 class AsyncTopPEval:
-    def __init__(self,out,gpu,n=5000,cfg_w=2.75,mapper_checkpoint=None,
+    def __init__(self,out,gpu,n=5000,cfg_w=2.75,adapter_checkpoint=None,
                  scorer_checkpoint=None,top_p_checkpoint=None,stage2_steps=8):
         self.out=Path(out);self.gpu=str(gpu);self.n=n;self.cfg_w=float(cfg_w)
-        self.mapper_checkpoint=mapper_checkpoint
+        self.adapter_checkpoint=adapter_checkpoint
         self.scorer_checkpoint=scorer_checkpoint
         self.top_p_checkpoint=top_p_checkpoint
         self.stage2_steps=int(stage2_steps)
@@ -78,12 +78,12 @@ class AsyncTopPEval:
             for key in ('RANK','WORLD_SIZE','LOCAL_RANK','LOCAL_WORLD_SIZE','GROUP_RANK','ROLE_RANK','ROLE_WORLD_SIZE'):
                 env.pop(key,None)
             env['OMP_NUM_THREADS']='4';env['OPENBLAS_NUM_THREADS']='4'
-            command=[sys.executable,str(Path(__file__).with_name('eval_worker.py')),
+            command=[sys.executable,str(Path(__file__).with_name('parallel_eval.py')),
                      '--checkpoint',job['checkpoint'],'--output',job['output'],'--n',str(self.n),
                      '--cfg-w',str(self.cfg_w),'--stage2-steps',str(self.stage2_steps),
                      '--workers',os.environ.get('MOTAR_EVAL_WORKERS','8')]
-            if self.mapper_checkpoint is not None:
-                command.extend(('--mapper-checkpoint',str(self.mapper_checkpoint)))
+            if self.adapter_checkpoint is not None:
+                command.extend(('--adapter-checkpoint',str(self.adapter_checkpoint)))
             if self.scorer_checkpoint is not None:
                 command.extend(('--scorer-checkpoint',str(self.scorer_checkpoint)))
             if self.top_p_checkpoint is not None:

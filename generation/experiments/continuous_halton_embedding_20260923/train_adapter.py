@@ -18,15 +18,15 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from bert2d.paths import ASSETS, atomic_json, output_path, sha256
-from experiments.feature_to_token_20260916.assets_top_p import TopPFrozenAssets, TOP_P_SHA256
-from experiments.feature_to_token_20260916.train_proxy_converter import (
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets, TOP_P_SHA256
+from experiments.continuous_halton_embedding_20260923.adapter_data import (
     load_data_contract, source_split, flat_rows, training_order, make_features, save_checkpoint)
 from experiments.continuous_halton_embedding_20260923.embedding_adapter import (
     EmbeddingAdapter, FORMAT, OFFICIAL_SHA256, official_embedding, regression_loss)
 
 
 @torch.no_grad()
-def evaluate(core, z1, proxy, rows, batch, device, quantizer, decoder, table, variance, rank, world):
+def evaluate(core, z1, teacher_ids, rows, batch, device, quantizer, decoder, table, variance, rank, world):
     was_training = core.training
     core.eval()
     totals = torch.zeros(4, dtype=torch.float64, device=device)
@@ -35,7 +35,7 @@ def evaluate(core, z1, proxy, rows, batch, device, quantizer, decoder, table, va
         flat = local_rows[start:start + batch]
         source, view = np.divmod(flat, 2)
         ids = torch.from_numpy(np.array(z1[source, view], dtype=np.int64)).to(device)
-        targets = torch.from_numpy(np.array(proxy[flat], dtype=np.int64)).to(device)
+        targets = torch.from_numpy(np.array(teacher_ids[flat], dtype=np.int64)).to(device)
         features = make_features(ids, quantizer, decoder)
         with torch.autocast('cuda', dtype=torch.bfloat16):
             pred = core(features)
@@ -81,11 +81,11 @@ def run(args):
     atomic_json(status_path, dict(status='loading', pid=os.getpid(), rank=rank))
     if sha256(args.top_p_ckpt) != TOP_P_SHA256:
         raise RuntimeError('top-p tokenizer mismatch')
-    z1, proxy, audit = load_data_contract(args.source_root, args.proxy_root, TOP_P_SHA256)
+    z1, teacher_ids, audit = load_data_contract(args.source_root, args.teacher_root, TOP_P_SHA256)
     train_sources, eval_sources = source_split(args.split_seed, args.eval_fraction)
     chosen = np.sort(np.random.default_rng(args.eval_seed).choice(eval_sources, args.eval_sources, replace=False))
     eval_rows = flat_rows(chosen)
-    # Identical order/horizon to the discrete mapper reference.
+    # Deterministic source ordering across the full training horizon.
     order = training_order(flat_rows(train_sources), args.steps * args.batch * world, args.seed, True)
     frozen = TopPFrozenAssets(args.assets_root, args.top_p_ckpt, 'cpu', chunk=args.batch)
     quantizer = frozen.native.quantize.to(device)
@@ -100,7 +100,7 @@ def run(args):
         micro_batch=args.batch, global_batch=args.batch * world, world=world, seed=args.seed,
         lr=args.lr, warmup=args.warmup, weight_decay=.01, model_config=core.config,
         parameters=sum(p.numel() for p in core.parameters()),
-        input='f1d only', target='official Halton embedding of top-p RGB-reencoded teacher proxy',
+        input='f1d only', target='official Halton embedding of top-p RGB-reencoded teacher IDs',
         loss='all-256-position MSE / fixed global variance of official real-token embedding table',
         target_variance=float(variance), target_table_sha256=hashlib.sha256(table.cpu().numpy().tobytes()).hexdigest(),
         precision='frozen f1d FP32 noTF32; adapter train/eval BF16; loss FP32',
@@ -121,7 +121,7 @@ def run(args):
         atomic_json(out / 'wandb.json', dict(id=wb.id, url=wb.url, smoke=args.smoke))
 
     def publish_eval(step):
-        metrics = evaluate(core, z1, proxy, eval_rows, args.eval_batch, device,
+        metrics = evaluate(core, z1, teacher_ids, eval_rows, args.eval_batch, device,
                            quantizer, decoder, table, variance, rank, world)
         if rank == 0:
             atomic_json(out / f'eval_step{step}.json', dict(step=step, **metrics))
@@ -137,7 +137,7 @@ def run(args):
         flat = order[offset:offset + args.batch]
         source, view = np.divmod(flat, 2)
         ids = torch.from_numpy(np.array(z1[source, view], dtype=np.int64)).to(device)
-        target_ids = torch.from_numpy(np.array(proxy[flat], dtype=np.int64)).to(device)
+        target_ids = torch.from_numpy(np.array(teacher_ids[flat], dtype=np.int64)).to(device)
         features = make_features(ids, quantizer, decoder)
         progress = (step-1) / max(args.steps-1, 1)
         lr = args.lr * min(step/max(args.warmup,1),1.) * (.1+.9*.5*(1+math.cos(math.pi*progress)))
@@ -190,7 +190,7 @@ def run(args):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
-    for name in ('source-root','proxy-root','top-p-ckpt','pretrained','output'):
+    for name in ('source-root','teacher-root','top-p-ckpt','pretrained','output'):
         p.add_argument('--'+name, type=Path, required=True)
     p.add_argument('--assets-root', type=Path, default=ASSETS)
     p.add_argument('--steps', type=int, default=40000)

@@ -1,12 +1,12 @@
-"""Route-only cache contract; never reads learned mapper proxy IDs."""
+"""Route-only cache contract for continuous embedding generation."""
 import json
 from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 from bert2d.paths import sha256
-from experiments.feature_to_token_20260916.data_top_p import RankDynamicBucketSampler
-from experiments.feature_to_token_20260916.assets_top_p import TOP_P_SHA256
+from experiments.continuous_halton_embedding_20260923.bucket_sampler import RankDynamicBucketSampler
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TOP_P_SHA256
 
 FORMAT = 'top_p_continuous_route_cache_v1'
 NUM_SOURCES, NUM_AUG = 1281167,2

@@ -108,7 +108,7 @@ def run(args):
                 prune_unused_one_d=True,
                 adapter_override=args.allow_adapter_override,
                 adapter_step=args.adapter_step,
-                mapper_checkpoint=(str(args.mapper_checkpoint.resolve()) if args.mapper_checkpoint else None),
+                adapter_checkpoint=(str(args.adapter_checkpoint.resolve()) if args.adapter_checkpoint else None),
                 scorer_checkpoint=(str(args.scorer_checkpoint.resolve()) if args.scorer_checkpoint else None),
                 top_p_checkpoint=(str(args.top_p_checkpoint.resolve()) if args.top_p_checkpoint else None),
                 sampling_unchanged=(args.stage1_guidance_scale==4.5 and
@@ -137,8 +137,8 @@ def run(args):
                      '--worker-shard',str(shard),'--worker-count',str(worker_count)]
             if args.reference_total is not None:
                 command.extend(('--reference-total',str(args.reference_total)))
-            if args.mapper_checkpoint is not None:
-                command.extend(('--mapper-checkpoint',str(args.mapper_checkpoint)))
+            if args.adapter_checkpoint is not None:
+                command.extend(('--adapter-checkpoint',str(args.adapter_checkpoint)))
             if args.allow_adapter_override:
                 command.extend(('--allow-adapter-override','--adapter-step',str(args.adapter_step)))
             if args.scorer_checkpoint is not None:
@@ -233,7 +233,7 @@ def cli():
                    help='inference-time top-p refinement mass; training used 0.75')
     p.add_argument('--scorer-checkpoint',type=Path,required=True)
     p.add_argument('--top-p-checkpoint',type=Path,required=True)
-    p.add_argument('--mapper-checkpoint',type=Path)
+    p.add_argument('--adapter-checkpoint',type=Path)
     p.add_argument('--allow-adapter-override',action='store_true',
                    help='explicitly evaluate a fine-tuned adapter descended from this checkpoint')
     p.add_argument('--adapter-step',type=int,

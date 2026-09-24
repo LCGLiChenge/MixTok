@@ -23,7 +23,7 @@ cd "$repo_root"
 exec torchrun --standalone --nproc_per_node=8 \
   -m experiments.continuous_halton_embedding_20260923.train_adapter \
   --source-root "$TOP_P_GT2D_CACHE" \
-  --proxy-root "$TOP_P_TEACHER_PROXY_CACHE" \
+  --teacher-root "$TOP_P_TEACHER_PROXY_CACHE" \
   --top-p-ckpt "$TOP_P_CKPT" --pretrained "$HALTON_OFFICIAL_CKPT" \
   --assets-root "$MOTAR_ASSETS" --output "$output" \
   --steps 40000 --stop-after 20000 \

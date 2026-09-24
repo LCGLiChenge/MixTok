@@ -20,19 +20,16 @@ from torch.utils.data import DataLoader
 
 from bert2d.paths import atomic_json, output_path, sha256
 from experiments.continuous_halton_embedding_20260923.data import (
-    RankDynamicBucketSampler, ContinuousRouteDataset as TopPProxyRouteDataset,
-    collate_continuous as collate_top_p_proxy_route,
+    RankDynamicBucketSampler, ContinuousRouteDataset,
+    collate_continuous,
 )
-from experiments.feature_to_token_20260916.halton_official_completion import (
-    HaltonCompletionObjective, official_training_api, sample_halton_completion,
-)
-from experiments.feature_to_token_20260916.halton_proxy import load_pretrained
+from experiments.continuous_halton_embedding_20260923.halton_upstream import official_training_api, load_pretrained
 from experiments.continuous_halton_embedding_20260923.continuous_halton import (
-    ContinuousHalton as HaltonProxy, ContinuousObjective as MixedHaltonCompletionObjective,
-    sample_continuous_completion as sample_halton_completion)
+    ContinuousHalton, ContinuousObjective,
+    sample_continuous_completion)
 from experiments.continuous_halton_embedding_20260923.embedding_adapter import load_adapter
-from experiments.feature_to_token_20260916.assets_top_p import TopPFrozenAssets
-from experiments.feature_to_token_20260916.train_proxy_converter import make_features
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets
+from experiments.continuous_halton_embedding_20260923.adapter_data import make_features
 from bert2d.paths import ASSETS
 from experiments.continuous_halton_embedding_20260923.async_eval import AsyncTopPEval
 
@@ -71,7 +68,7 @@ def set_budget_cosine_lr(optimizer, step: int, peak_lr: float, warmup: int,
     return lr
 
 
-def save_checkpoint(out: Path, core: HaltonProxy, optimizer, step: int, config: dict, cursor: dict, rng_states: list):
+def save_checkpoint(out: Path, core: ContinuousHalton, optimizer, step: int, config: dict, cursor: dict, rng_states: list):
     """Atomic rolling latest; torch serialization retains tied embedding storage."""
     import shutil
     if shutil.disk_usage(out).free < 10 * 1024**3:
@@ -144,7 +141,7 @@ def run(args):
             raise RuntimeError("Halton pretrained checkpoint SHA256 mismatch")
         if cache_config.get("top_p_checkpoint_sha256") != sha256(args.top_p_ckpt):
             raise RuntimeError("cache and top-p tokenizer differ")
-        if not args.mapper_ckpt.is_file():
+        if not args.adapter_ckpt.is_file():
             raise RuntimeError("continuous adapter checkpoint missing")
         if cache_config.get("scorer_sha256") != sha256(args.scorer_ckpt):
             raise RuntimeError("cache and accepted scorer differ")
@@ -152,7 +149,6 @@ def run(args):
             raise RuntimeError("final condition cache config hash differs")
         verified[0] = pretrained_sha
     dist.broadcast_object_list(verified, src=0, group=metadata_group)
-    cache_config["mapper_sha256"] = sha256(args.mapper_ckpt)
     cache_config["context_kind"] = "frozen_continuous_adapter"
     transfer = True
     extra_eval_steps = parse_extra_eval_steps(args.extra_eval_steps)
@@ -168,13 +164,9 @@ def run(args):
                   lr_schedule=args.lr_schedule, lr_hold_until=args.lr_hold_until,
                   lr_decay_until=args.lr_decay_until, min_lr=args.min_lr,
                   weight_decay=.03, betas=[.9,.999],
-                  loss=('masked-only CE on selected positions; 16385 classes'
-                        if args.mask_objective == 'mixed-prefix' else
-                        'official equal-weight CE on all selected positions; 16385 classes'),
-                  mask=('half official arccos random, half Halton-prefix including full-MASK'
-                        if args.mask_objective == 'mixed-prefix' else
-                        'official get_mask_code arccos on K positions'),
-                  mask_objective=args.mask_objective,
+                  loss='masked-only CE on selected positions; 16385 classes',
+                  mask='half official arccos random, half Halton-prefix including full-MASK',
+                  mask_objective='mixed-prefix',
                   sampling=dict(order='official Halton filtered to selection', steps=32,
                                 cfg_w=args.eval_cfg_w, temperature=1., exclude_mask_at_sampling=True),
                   initialization='all official Halton parameters; fresh optimizer and task iteration zero',
@@ -190,12 +182,11 @@ def run(args):
                   extra_eval_steps=extra_eval_steps,eval_every_epoch=True,
                   eval_n=8 if args.smoke else 5000,eval_gpu=str(args.eval_gpu),
                   log_every=args.log_every,
-                  proxy_root=str(args.cache_root.resolve()),
-                  eval_mapper_checkpoint=str(args.mapper_ckpt.resolve()),
+                  eval_adapter_checkpoint=str(args.adapter_ckpt.resolve()),
                   eval_scorer_checkpoint=str(args.scorer_ckpt.resolve()),
                   source_root=str(args.source_root.resolve()),
                   top_p_checkpoint=str(args.top_p_ckpt.resolve()),
-                  adapter_sha256=cache_config['mapper_sha256'],
+                  adapter_sha256=sha256(args.adapter_ckpt),
                   adapter_step=args.adapter_step if args.smoke else 20000,
                   condition_precision='f1d FP32 noTF32; frozen adapter BF16; context before position embedding',
                   upstream_root=str(args.upstream_root.resolve()),
@@ -205,7 +196,7 @@ def run(args):
                                   for name in ("continuous_halton.py", "embedding_adapter.py", "data.py",
                                               "async_eval.py", "eval_worker.py",
                                               "parallel_eval.py", Path(__file__).name)})
-    data = TopPProxyRouteDataset(args.source_root, args.source_root, args.cache_root)
+    data = ContinuousRouteDataset(args.source_root, args.source_root, args.cache_root)
     if len(data) != 2562334:
         raise RuntimeError("unexpected dataset size")
     config["condition_kind"] = "continuous_768D_before_positional_embedding"
@@ -227,17 +218,15 @@ def run(args):
         out.mkdir(parents=True, exist_ok=False)
         atomic_json(out / "config.json", config)
     dist.barrier()
-    core = HaltonProxy(args.upstream_root)
+    core = ContinuousHalton(args.upstream_root)
     init = load_pretrained(core, args.pretrained, transfer, verify_hash=False)
     if rank == 0:
         atomic_json(out / "initialization.json", init)
     core.to(device).train()
     official = official_training_api(args.upstream_root, core, args.lr, args.warmup, horizon)
     optimizer = official.optim
-    objective_class = (MixedHaltonCompletionObjective if args.mask_objective == 'mixed-prefix'
-                       else HaltonCompletionObjective)
-    objective = DDP(objective_class(core, args.upstream_root), device_ids=[local], broadcast_buffers=False)
-    loader = DataLoader(data, batch_sampler=sampler, collate_fn=collate_top_p_proxy_route,
+    objective = DDP(ContinuousObjective(core, args.upstream_root), device_ids=[local], broadcast_buffers=False)
+    loader = DataLoader(data, batch_sampler=sampler, collate_fn=collate_continuous,
                         num_workers=2, pin_memory=True, persistent_workers=True)
     stream = iter(loader)
     # Loading frozen modules must not advance the baseline masking/dropout RNG.
@@ -245,7 +234,7 @@ def run(args):
         frozen = TopPFrozenAssets(ASSETS, args.top_p_ckpt, "cpu", chunk=args.micro)
         quantizer = frozen.native.quantize.to(device)
         latent_decoder = frozen.shell.latent_decoder.to(device)
-        adapter, adapter_config = load_adapter(args.mapper_ckpt, device,
+        adapter, adapter_config = load_adapter(args.adapter_ckpt, device,
             cache_config["top_p_checkpoint_sha256"], args.adapter_step if args.smoke else 20000)
     config["adapter_training"] = adapter_config
     if rank == 0:
@@ -262,7 +251,7 @@ def run(args):
         run_wandb.define_metric('eval/*',step_metric='eval/checkpoint_step')
         atomic_json(out/'wandb.json',dict(id=run_wandb.id,url=run_wandb.url,smoke=args.smoke))
         evaluator=AsyncTopPEval(out,args.eval_gpu,n=config['eval_n'],cfg_w=args.eval_cfg_w,
-                                mapper_checkpoint=args.mapper_ckpt,
+                                adapter_checkpoint=args.adapter_ckpt,
                                 scorer_checkpoint=args.scorer_ckpt,
                                 top_p_checkpoint=args.top_p_ckpt,
                                 stage2_steps=args.eval_stage2_steps)
@@ -307,8 +296,8 @@ def run(args):
         epoch_batch += 1
         features = make_features(batch["z1d"], quantizer, latent_decoder)
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
-            proxy = adapter(features)
-        if proxy.requires_grad or not bool(torch.isfinite(proxy).all()):
+            context = adapter(features)
+        if context.requires_grad or not bool(torch.isfinite(context).all()):
             raise RuntimeError("invalid frozen continuous context")
         del features
         indices, valid = batch["route_indices"], batch["route_valid"]
@@ -320,7 +309,7 @@ def run(args):
             official.adapt_learning_rate()
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast("cuda", dtype=torch.bfloat16):
-            loss, metrics = objective(proxy, batch['z2d'], batch["label"], indices, valid)
+            loss, metrics = objective(context, batch['z2d'], batch["label"], indices, valid)
         if not torch.isfinite(loss):
             raise RuntimeError("nonfinite training loss")
         loss.backward()
@@ -356,13 +345,13 @@ def run(args):
             dist.barrier()
     if args.smoke:
         core.eval()
-        selected = torch.zeros(len(proxy),256,dtype=torch.bool,device=device).scatter(1,indices,True)
-        anchor_copy = proxy[:1][~selected[:1]].clone()
+        selected = torch.zeros(len(context),256,dtype=torch.bool,device=device).scatter(1,indices,True)
+        anchor_copy = context[:1][~selected[:1]].clone()
         trace=[]
         with torch.autocast('cuda', dtype=torch.bfloat16):
-            result=sample_halton_completion(core,proxy[:1],selected[:1],batch['label'][:1],
+            result=sample_continuous_completion(core,context[:1],selected[:1],batch['label'][:1],
                 args.upstream_root,steps=4,trace=trace)
-        if not torch.equal(proxy[:1][~selected[:1]],anchor_copy) or bool((result[selected[:1]]==16384).any()):
+        if not torch.equal(context[:1][~selected[:1]],anchor_copy) or bool((result[selected[:1]]==16384).any()):
             raise RuntimeError('smoke anchor corruption')
         atomic_json(out / f'sampling_smoke_rank{rank}.json',dict(status='passed',trace=trace))
         dist.barrier()
@@ -390,7 +379,7 @@ if __name__ == "__main__":
     p.add_argument("--source-root", type=Path, required=True)
     p.add_argument("--cache-root", type=Path, required=True)
     p.add_argument("--top-p-ckpt", type=Path, required=True)
-    p.add_argument("--mapper-ckpt", type=Path, required=True)
+    p.add_argument("--adapter-ckpt", type=Path, required=True)
     p.add_argument("--scorer-ckpt", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument('--epochs',type=int,default=50)
@@ -410,7 +399,6 @@ if __name__ == "__main__":
     p.add_argument('--eval-gpu',default='auto')
     p.add_argument('--eval-cfg-w',type=float,default=2.75)
     p.add_argument('--eval-stage2-steps',type=int,choices=(1,2,4,6,8,16,32),default=8)
-    p.add_argument('--mask-objective',choices=('official','mixed-prefix'),default='mixed-prefix')
     p.add_argument('--extra-eval-steps',default='2000,4000,8000,12000,16000,20000',
                    help='Comma-separated update numbers for additional async 5k evals')
     p.add_argument('--wandb-project',default='mixtok-continuous-halton')

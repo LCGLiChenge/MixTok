@@ -1,40 +1,23 @@
-# MixTok Generation: Sparse 2D MaskGIT
+# MixTok Generation: Continuous Embedding MaskGIT
 
-This directory contains the **top-p sparse-2D MaskGIT** code for both the proxy-ID branch and the newer continuous-context branch. It includes their training, cache, and evaluation scripts plus the vendor adapters they use. Model weights, ImageNet, and generated caches are external assets.
+This directory contains the **continuous embedding** generation path. The official TiTok MaskGIT samples 32 global 1D IDs. The frozen top-p tokenizer expands them into a 16 × 16 feature grid, and a scorer selects a variable number of refinement locations. A trained adapter maps the 1D feature grid to 256 continuous, 768-dimensional Halton input embeddings. Halton MaskGIT generates discrete 2D IDs only at the selected locations; the shared decoder keeps the 1D-derived features everywhere else.
 
-## Generation model
+![MixTok generation with continuous embedding context, top-p spatial selection, sparse 2D MaskGIT, and a shared decoder.](../docs/maskgit.png)
 
-The frozen official TiTok MaskGIT generates 32 one-dimensional IDs. The top-p tokenizer decodes their 16×16 feature map; an `f_1D`-only scorer chooses refinement positions and a codebook mapper predicts 256 proxy 2D IDs. One Halton MaskGIT then generates **only the selected** 2D IDs, and the top-p decoder directly replaces the selected features before rendering. The unselected features stay as the continuous 1D features; they are not replaced with proxy IDs at image decode time.
+## Requirements
 
-The generation code provides a proxy-ID context branch and a continuous-context branch. Both use the same selected 2D positions and generate discrete 2D IDs only at those positions. The continuous branch maps the 1D feature grid directly into Halton input embeddings; its training scripts and asset requirements are described below.
+- Python 3.10, eight H20 GPUs, PyTorch 2.10.0, torchvision 0.25.0, and the packages in [`requirements-h20.txt`](requirements-h20.txt) and [`constraints-h20.txt`](constraints-h20.txt). Training uses W&B online login.
+- Official Halton-MaskGIT source and `ImageNet_256_base.pth` from [`llvictorll/Halton-MaskGIT`](https://huggingface.co/llvictorll/Halton-MaskGIT). The required checkpoint SHA-256 is `7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f`.
+- Official TiTok-L32 weights and the evaluated top-p reconstruction checkpoint at step 247482, loaded from `model_ema`. The top-p checkpoint SHA-256 is `61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819`. Training uses the full checkpoint; [`export_top_p_inference.py`](experiments/continuous_halton_embedding_20260923/export_top_p_inference.py) can make a smaller inference-only copy.
+- The accepted 1D-feature top-p scorer checkpoint and the paired ImageNet top-p GT code cache, including both cached augmentations. The cache contains `titok_codes.npy`, `llamagen_codes.npy`, `labels.npy`, and `meta.json`.
+- A completed teacher-token cache for adapter targets and a completed route-only cache for sparse training. The teacher cache's `proxy_codes.npy` filename is part of its existing data format; the generator uses continuous embeddings. The route cache contains `config.json`, `summary.json`, `route_indices.npy`, and `route_k.npy`.
+- ADM FID reference assets for evaluation. [`configs/h20_assets.json`](configs/h20_assets.json) records local asset paths, sizes, and hashes.
 
-## Source layout
+Checkpoints, ImageNet data, generated caches, and ADM reference files are external assets. Supply them under `../assets/` or set the paths below to their actual locations. The checked-in source uses relative paths and checks the expected asset identities.
 
-- `experiments/feature_to_token_20260916/train_halton_top_p.py`: **completed 20k** 8-GPU training entry point; official Halton initialization, 50% arccos / 50% Halton-prefix masks, selected-and-masked CE, budget-cosine LR, W&B, rolling `latest.pt`, and asynchronous 5k FID.
-- `experiments/feature_to_token_20260916/data_top_p.py`, `halton_proxy.py`, `halton_official_completion.py`, `halton_mixed_completion.py`: model/data/objective implementation.
-- `experiments/feature_to_token_20260916/cache_final_conditions.py`, `train_proxy_converter.py`, `top_p_scorer_original.py`: final condition cache and upstream mapper/scorer implementation.
-- `experiments/feature_to_token_20260916/parallel_top_p_eval.py`, `eval_top_p_worker.py`, `sweep_top_p_cfg.py`: distributed evaluation and CFG scan.
-- `scripts/extract_codes_top_p.py`: top-p 1D/2D code extraction.
-- `scripts/launch_top_p_halton20k.sh`: path-configurable launcher for the proxy-ID experiment.
-- `experiments/continuous_halton_embedding_20260923/`: continuous 768D context adapter, sparse Halton training, CFG sweep, and compact-checkpoint evaluation.
-- `scripts/launch_continuous_adapter20k.sh`, `scripts/launch_continuous_halton20k.sh`: launchers for the new two-stage continuous-context variant.
-- `third_party/`: vendored TiTok, LlamaGen, RandAR and E117 code with their provenance/license files.
+## Train and evaluate
 
-## Required external assets
-
-The repository is **code-only**. Before training, provide:
-
-1. An H20-compatible Python 3.10/CUDA environment (`requirements-h20.txt` and `constraints-h20.txt` record the tested package versions) and eight H20 GPUs.
-2. The official Halton-MaskGIT upstream source and `ImageNet_256_base.pth` from [`llvictorll/Halton-MaskGIT`](https://huggingface.co/llvictorll/Halton-MaskGIT). The trainer enforces checkpoint SHA-256 `7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f`.
-3. The frozen official TiTok-L32 tokenizer and the **top-p end-to-end tokenizer checkpoint at step 247482**, using its `model_ema`. The required TiTok and top-p hashes are enforced in `assets_top_p.py`. Older k-selector tokenizer/decoder weights are incompatible.
-4. The accepted `f_1D`-only top-p scorer checkpoint, the separately trained codebook-8 mapper checkpoint, and their completed top-p condition cache. The trainer checks those checkpoint hashes against the cache metadata before starting.
-5. The full top-p GT code cache for ImageNet train (both cached augmentations, 2,562,334 rows) and ADM evaluation assets. `configs/h20_assets.json` records asset paths and hashes; `bert2d/paths.py` describes the asset layout.
-
-The trained checkpoints, generated caches, ImageNet data and ADM reference files are **not bundled here**. Supply non-public assets locally under `../assets/generation/` and verify their recorded hashes. Training and evaluation require those exact external assets. Do not substitute earlier k-selector checkpoints.
-
-## Train the 20k version
-
-Run the following from `generation/` after placing assets in the adjacent directories. `MOTAR_RESULTS` points to a sibling directory outside this component. The launcher refuses an existing output directory. The historical `MOTAR_*` environment variable names remain part of its command-line interface.
+Run from `generation/` after supplying the assets. The launchers require new output directories and run for 20,000 optimizer updates each.
 
 ```bash
 export MOTAR_ASSETS=../assets/generation
@@ -42,42 +25,58 @@ export MOTAR_RESULTS=../results/generation
 export HALTON_UPSTREAM_ROOT=../Halton-MaskGIT/source
 export HALTON_OFFICIAL_CKPT=../assets/generation/ImageNet_256_base.pth
 export TOP_P_CKPT=../assets/reconstruction/epoch_0006_step_00247482.pt
-export TOP_P_GT2D_CACHE=../assets/generation/gt2d_top_p_train
-export TOP_P_CONDITION_CACHE=../assets/generation/final_conditions_top_p_train
-export TOP_P_MAPPER_CKPT=../assets/generation/mapper20k/latest.pt
 export TOP_P_SCORER_CKPT=../assets/generation/top_p_scorer/latest.pt
-export TOP_P_OUTPUT="$MOTAR_RESULTS/halton20k_top_p_seed0"
-bash scripts/launch_top_p_halton20k.sh
-```
-
-The run uses global batch 256 (8×32), seed 0, peak LR `2e-5`, 2,500-step warmup, hold through step 4,000, cosine decay to `2e-6` at step 20,000, and W&B project `mot-maskgit-review`. Training stops at **20,000 optimizer updates**. `latest.pt` is a rolling checkpoint; 5k FID is requested at 2k, 4k, 8k, 12k, 16k, 20k and completed epoch boundaries. The final 50k FID requires a separate CFG scan and evaluation using `sweep_top_p_cfg.py`.
-
-## Continuous 768D context variant
-
-The newer variant maps the 16 × 16 1D feature grid directly to 256 continuous, 768-dimensional Halton input embeddings. It uses the same top-p route policy, generates discrete 2D IDs only at selected locations, and keeps the 1D-derived continuous features at unselected decoder locations. Its embedding adapter starts from fresh parameters; it does not initialize from the proxy-ID mapper.
-
-![MixTok continuous embedding generation: 1D MaskGIT, top-p grid scorer, embedding adapter, sparse 2D MaskGIT, and shared decoder.](../docs/maskgit.png)
-
-The implementation is in [`experiments/continuous_halton_embedding_20260923/`](experiments/continuous_halton_embedding_20260923/). `train_adapter.py` fits the continuous adapter against the official Halton embedding table; `train_halton.py` trains the sparse generator; `sweep_cfg.py` runs the CFG search and final evaluation. `export_top_p_inference.py` can produce a smaller inference-only tokenizer checkpoint, and `verify_top_p_inference.py` checks its tensor equality against the full checkpoint. Training requires the full checkpoint.
-
-Besides the assets above, this variant needs a teacher-proxy cache for adapter targets and a completed **route-only cache** for Halton training. The latter contains `config.json`, `summary.json`, `route_indices.npy`, and `route_k.npy`. It must match the frozen tokenizer and scorer identities checked by [`data.py`](experiments/continuous_halton_embedding_20260923/data.py). The optional `prepare_h20.py` migrates route files from an existing completed proxy-ID baseline; pass both `--baseline-root` and a new `--root` directory. It does not download or rebuild the source caches.
-
-From `generation/`, with the same external asset variables as above:
-
-```bash
+export TOP_P_GT2D_CACHE=../assets/generation/gt2d_top_p_train
 export TOP_P_TEACHER_PROXY_CACHE=../assets/generation/teacher_proxy_top_p_train
 export TOP_P_ROUTE_CACHE=../assets/generation/top_p_continuous_route_cache
-bash scripts/launch_continuous_adapter20k.sh
 
+bash scripts/launch_continuous_adapter20k.sh
 export CONTINUOUS_ADAPTER_CKPT="$MOTAR_RESULTS/continuous_adapter20k_seed20260918/latest.pt"
 bash scripts/launch_continuous_halton20k.sh
 
 python experiments/continuous_halton_embedding_20260923/sweep_cfg.py \
   --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
-  --mapper-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
+  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
   --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
   --top-p-checkpoint "$TOP_P_CKPT" \
   --output "$MOTAR_RESULTS/continuous_cfg_sweep"
 ```
 
-Both launchers use eight H20 GPUs, stop after 20,000 updates, and write a rolling `latest.pt`. The final sweep requires the ADM evaluation assets under `MOTAR_ASSETS`. Use new output directories for each run. If an existing completed proxy-ID baseline is available, the optional `run_pipeline.py` can orchestrate the stages using the same environment variables and a prepared route cache.
+The first stage trains the embedding adapter against the official Halton embedding table using the teacher-token cache. The second stage freezes that adapter and trains sparse Halton MaskGIT using the route-only cache. `sweep_cfg.py` selects CFG on a fixed 5k cohort, then evaluates the selected setting on 50k samples. Both training stages write a rolling `latest.pt`.
+
+### Build the caches
+
+[`cache_teacher_targets.py`](experiments/continuous_halton_embedding_20260923/cache_teacher_targets.py) builds the teacher-token cache by decoding each 1D base image and re-encoding it with the frozen top-p VQ model. [`cache_routes.py`](experiments/continuous_halton_embedding_20260923/cache_routes.py) applies the accepted scorer to the frozen 1D features and records only the selected top-p positions. Neither cache builder trains a generator.
+
+Both cache builders use `prepare`, `extract`, and `finalize` modes. For example, after setting the variables above and supplying the paired GT cache, prepare the route cache and distribute extraction across eight GPUs:
+
+```bash
+python experiments/continuous_halton_embedding_20260923/cache_routes.py prepare \
+  --assets-root "$MOTAR_ASSETS" --source-root "$TOP_P_GT2D_CACHE" \
+  --top-p-ckpt "$TOP_P_CKPT" --scorer-ckpt "$TOP_P_SCORER_CKPT" \
+  --output "$TOP_P_ROUTE_CACHE" --world-size 8
+
+pids=()
+for rank in 0 1 2 3 4 5 6 7; do
+  CUDA_VISIBLE_DEVICES="$rank" python experiments/continuous_halton_embedding_20260923/cache_routes.py extract \
+    --assets-root "$MOTAR_ASSETS" --source-root "$TOP_P_GT2D_CACHE" \
+    --top-p-ckpt "$TOP_P_CKPT" --scorer-ckpt "$TOP_P_SCORER_CKPT" \
+    --output "$TOP_P_ROUTE_CACHE" --world-size 8 --rank "$rank" &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do wait "$pid" || exit 1; done
+
+python experiments/continuous_halton_embedding_20260923/cache_routes.py finalize \
+  --assets-root "$MOTAR_ASSETS" --source-root "$TOP_P_GT2D_CACHE" \
+  --top-p-ckpt "$TOP_P_CKPT" --scorer-ckpt "$TOP_P_SCORER_CKPT" \
+  --output "$TOP_P_ROUTE_CACHE" --world-size 8
+```
+
+The teacher cache builder takes the same `--source-root`, `--top-p-ckpt`, and `--output` paths, plus `--assets-root`; use its `--help` for rank and batch options. Cache identities and row alignment are validated again when training starts.
+
+## Source layout
+
+- [`experiments/continuous_halton_embedding_20260923/`](experiments/continuous_halton_embedding_20260923/): embedding adapter, continuous Halton model, cache builders, training, asynchronous evaluation, CFG sweep, and compact-checkpoint tools.
+- [`scripts/launch_continuous_adapter20k.sh`](scripts/launch_continuous_adapter20k.sh) and [`scripts/launch_continuous_halton20k.sh`](scripts/launch_continuous_halton20k.sh): eight-GPU training launchers.
+- [`scripts/extract_codes_top_p.py`](scripts/extract_codes_top_p.py): paired top-p code extraction.
+- [`third_party/`](third_party/): vendored upstream components with their provenance and license files.

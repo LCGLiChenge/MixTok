@@ -18,7 +18,7 @@ SCORER=Path(os.environ.get('TOP_P_SCORER_CKPT', ASSETS/'top_p_scorer/latest.pt')
 UPSTREAM=Path(os.environ.get('HALTON_UPSTREAM_ROOT', ROOT/'Halton-MaskGIT/source')).resolve()
 OFFICIAL=Path(os.environ.get('HALTON_OFFICIAL_CKPT', ASSETS/'ImageNet_256_base.pth')).resolve()
 GT2D=Path(os.environ.get('TOP_P_GT2D_CACHE', ASSETS/'gt2d_top_p_train')).resolve()
-PROXY=Path(os.environ.get('TOP_P_TEACHER_PROXY_CACHE', ASSETS/'teacher_proxy_top_p_train')).resolve()
+TEACHER=Path(os.environ.get('TOP_P_TEACHER_PROXY_CACHE', ASSETS/'teacher_proxy_top_p_train')).resolve()
 ROUTES=Path(os.environ.get('TOP_P_ROUTE_CACHE', ASSETS/'top_p_continuous_route_cache')).resolve()
 PACKAGE='experiments.continuous_halton_embedding_20260923'
 
@@ -37,7 +37,7 @@ def env():
 def adapter_command(output,smoke=False):
     command=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node=8',
         '-m',PACKAGE+'.train_adapter','--source-root',str(GT2D),
-        '--proxy-root',str(PROXY),'--top-p-ckpt',str(TOPP),
+        '--teacher-root',str(TEACHER),'--top-p-ckpt',str(TOPP),
         '--pretrained',str(OFFICIAL),'--output',str(output),'--assets-root',str(ASSETS)]
     if smoke:
         command+=['--smoke','--stop-after','3','--batch','1','--eval-batch','1',
@@ -49,7 +49,7 @@ def halton_command(output,adapter,smoke=False,skip_fid=False):
     command=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node=8',
         '-m',PACKAGE+'.train_halton','--upstream-root',str(UPSTREAM),'--pretrained',str(OFFICIAL),
         '--source-root',str(GT2D),'--cache-root',str(ROUTES),
-        '--top-p-ckpt',str(TOPP),'--mapper-ckpt',str(adapter),'--scorer-ckpt',str(SCORER),
+        '--top-p-ckpt',str(TOPP),'--adapter-ckpt',str(adapter),'--scorer-ckpt',str(SCORER),
         '--output',str(output),'--eval-stage2-steps','8','--eval-cfg-w','2.75']
     if smoke:
         command+=['--smoke','--updates','3','--micro','1','--min-free-gib','4',
@@ -71,7 +71,7 @@ def main():
     phases=[('adapter',adapter_command(adapter),adapter/'summary.json'),
         ('halton',halton_command(halton,adapter/'latest.pt'),halton/'complete.json'),
         ('cfg_sweep_50k',[sys.executable,'-m',PACKAGE+'.sweep_cfg',
-            '--checkpoint',str(halton/'latest.pt'),'--mapper-checkpoint',str(adapter/'latest.pt'),
+            '--checkpoint',str(halton/'latest.pt'),'--adapter-checkpoint',str(adapter/'latest.pt'),
             '--scorer-checkpoint',str(SCORER),'--top-p-checkpoint',str(TOPP),
             '--output',str(sweep)],sweep/'summary.json')]
     started=time.time()

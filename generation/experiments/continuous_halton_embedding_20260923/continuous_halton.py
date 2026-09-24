@@ -4,12 +4,22 @@ from pathlib import Path
 import torch
 from torch import nn
 import torch.nn.functional as F
-from experiments.feature_to_token_20260916.halton_proxy import HaltonProxy
-from experiments.feature_to_token_20260916.halton_official_completion import official_components
-from experiments.feature_to_token_20260916.halton_mixed_completion import halton_prefix_mask
+from experiments.continuous_halton_embedding_20260923.halton_upstream import (
+    official_components, upstream_transformer,
+)
 
 
-class ContinuousHalton(HaltonProxy):
+class ContinuousHalton(nn.Module):
+    vocabulary = 16384
+    mask_token = 16384
+
+    def __init__(self, upstream_root: Path, dropout: float = 0.1):
+        super().__init__()
+        transformer = upstream_transformer(upstream_root)
+        self.model = transformer(input_size=16, hidden_dim=768, codebook_size=16384,
+                                 depth=12, heads=12, mlp_dim=3072, dropout=dropout,
+                                 nclass=1000, register=1, proj=1)
+
     def forward(self, context, tokens, selected, labels, force_drop_ids=None, output_indices=None):
         if context.shape != (len(tokens), 256, 768) or tokens.shape != selected.shape:
             raise ValueError('continuous input shape differs')
@@ -33,6 +43,22 @@ class ContinuousHalton(HaltonProxy):
         if output_indices is not None:
             logits = logits.gather(1, output_indices[..., None].expand(-1, -1, self.vocabulary+1))
         return logits.float()
+
+
+def halton_prefix_mask(indices: torch.Tensor, order_rank: torch.Tensor,
+                       completed_rounds: torch.Tensor, steps: int = 32) -> torch.Tensor:
+    """Mask selected positions not revealed after 0..steps-1 Halton rounds."""
+    batch, k = indices.shape
+    if k < 1 or completed_rounds.shape != (batch,):
+        raise ValueError("expected nonempty homogeneous K buckets")
+    if bool(((completed_rounds < 0) | (completed_rounds >= steps)).any()):
+        raise ValueError("completed_rounds outside sampling prefix")
+    fraction = 1 - torch.arccos(completed_rounds.float() / steps) / (math.pi * .5)
+    revealed = torch.maximum((k * fraction).long(), completed_rounds)
+    revealed = revealed.clamp(max=k - 1)
+    selected_rank = order_rank.to(indices.device)[indices]
+    position_in_prefix = selected_rank.argsort(dim=1).argsort(dim=1)
+    return position_in_prefix >= revealed[:, None]
 
 
 class ContinuousObjective(nn.Module):

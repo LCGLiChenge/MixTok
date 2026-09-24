@@ -22,7 +22,7 @@ MixTok represents an image with **32 global 1D tokens** and a variable number of
 
 *MixTok reconstruction overview. The scorer and top-p controller select spatial locations for 2D refinement.*
 
-For **generation**, a TiTok MaskGIT first samples the 32 1D IDs. A scorer using the resulting 1D features selects 2D locations, and a sparse Halton MaskGIT generates IDs only there. This repository includes proxy-ID conditioning and a newer continuous-context variant that maps 1D features directly to Halton input embeddings. Unselected decoder locations keep their continuous 1D-derived features.
+For **generation**, a TiTok MaskGIT first samples the 32 1D IDs. A scorer selects spatial locations using their 1D feature grid. An embedding adapter maps that grid into continuous Halton context embeddings, and sparse Halton MaskGIT generates 2D IDs only at the selected locations. Unselected decoder locations keep their continuous 1D-derived features.
 
 <p align="center">
   <img src="docs/maskgit.png" width="88%" alt="MixTok generation pipeline with a 1D MaskGIT, top-p grid selection, continuous embedding adapter, sparse 2D MaskGIT, and shared decoder." />
@@ -37,7 +37,7 @@ The fixed **96/256** allocation belongs to reconstruction warm-start training. F
 | Directory | Main purpose | Start here |
 | --- | --- | --- |
 | [`reconstruction/`](reconstruction/) | Adapter, fixed-budget warm-start, end-to-end top-p reconstruction, and ImageNet validation | [Reconstruction guide](reconstruction/README.md) |
-| [`generation/`](generation/) | Proxy-ID and continuous-context sparse 2D MaskGIT, CFG sweep, and generation evaluation | [Generation guide](generation/README.md) |
+| [`generation/`](generation/) | Continuous-embedding sparse 2D MaskGIT, CFG sweep, and generation evaluation | [Generation guide](generation/README.md) |
 
 Each component is run from **its own directory**. Configuration paths are relative to that working directory; for example, `../ImageNet/train` in a reconstruction YAML means `MixTok/ImageNet/train`. The two components have different software environments.
 
@@ -57,7 +57,7 @@ MixTok/
 │   └── validation/
 ├── assets/
 │   ├── reconstruction/       # evaluated top-p checkpoint when supplied
-│   └── generation/           # Halton init, mapper, scorer, caches, FID assets
+│   └── generation/           # Halton init, scorer, teacher/route caches, FID assets
 └── results/                  # generation runs and evaluations
 ~~~
 
@@ -71,9 +71,9 @@ The repository does **not** redistribute ImageNet, trained checkpoints, generate
 | Fixed 20-epoch reconstruction checkpoint | Top-p reconstruction initialization | `reconstruction/weights/epoch_0020_step_00199440.pt` by default; SHA-256 `86c8f9da5e61261ab93066c73d7719203e8c00b69f05b805c5937e6b7319b446` |
 | Evaluated top-p checkpoint at step 247482 | Reconstruction validation and generation conditioning | Set the evaluation `ckpt` path and generation `TOP_P_CKPT` to the same file; SHA-256 `61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819` |
 | Official Halton initialization | Generation training | `assets/generation/ImageNet_256_base.pth` in the example below; SHA-256 `7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f` |
-| Top-p scorer, proxy-ID mapper or continuous adapter, GT and route caches, ADM reference | Generation training and evaluation | Supply under `assets/generation/` and set the paths in the generation command |
+| Top-p scorer, teacher-proxy and route caches, GT codes, ADM reference | Embedding generation training and evaluation | Supply under `assets/generation/`; training creates the continuous adapter checkpoint |
 
-The generation code checks the TiTok and top-p checkpoint hashes in [`assets_top_p.py`](generation/experiments/feature_to_token_20260916/assets_top_p.py). Do not replace these with earlier fixed-budget or k-selector weights.
+The generation code checks the TiTok and top-p checkpoint hashes in [`assets_top_p.py`](generation/experiments/continuous_halton_embedding_20260923/assets_top_p.py). Do not replace these with earlier fixed-budget or k-selector weights.
 
 ## Reconstruction
 
@@ -136,11 +136,11 @@ The 50k config writes `results/top_p_eval_50000.json`. Its `no_ssim: true` setti
 
 ## Generation
 
-Generation needs the **same evaluated top-p reconstruction checkpoint** plus its own scorer and completed caches. The proxy-ID branch uses a codebook mapper; the continuous-context branch uses a fresh embedding adapter. Neither branch is runnable end to end from source files alone. See the [generation guide](generation/README.md) for entry points and asset contracts.
+Generation uses **continuous embedding**. It needs the same evaluated top-p reconstruction checkpoint, the accepted 1D-feature scorer, a paired top-p GT code cache, a teacher-proxy cache for adapter training targets, and a route-only cache for sparse 2D training. See the [generation guide](generation/README.md) for the cache contract and source layout.
 
-Prepare a separate Python 3.10/CUDA environment with PyTorch **2.10.0**, torchvision **0.25.0**, and the packages pinned in [`requirements-h20.txt`](generation/requirements-h20.txt) and [`constraints-h20.txt`](generation/constraints-h20.txt). The validated trainer targets eight H20 GPUs and requires W&B online login. From `generation/`, `python -m h20.preflight --environment-only` checks the pinned runtime versions before training.
+Use a separate Python 3.10/CUDA environment with PyTorch **2.10.0**, torchvision **0.25.0**, and the packages in [`requirements-h20.txt`](generation/requirements-h20.txt) and [`constraints-h20.txt`](generation/constraints-h20.txt). The training scripts target eight H20 GPUs and require W&B online login. From `generation/`, `python -m h20.preflight --environment-only` checks the pinned runtime versions.
 
-After supplying the assets, run the 20k launcher from the repository root. The historical `MOTAR_*` environment variable names are part of the script interface:
+After supplying the external assets, run these commands from the repository root. The `MOTAR_*` environment variable names are part of the script interface:
 
 ~~~bash
 cd generation
@@ -149,42 +149,24 @@ export MOTAR_RESULTS=../results/generation
 export HALTON_UPSTREAM_ROOT=../Halton-MaskGIT/source
 export HALTON_OFFICIAL_CKPT=../assets/generation/ImageNet_256_base.pth
 export TOP_P_CKPT=../assets/reconstruction/epoch_0006_step_00247482.pt
-export TOP_P_GT2D_CACHE=../assets/generation/gt2d_top_p_train
-export TOP_P_CONDITION_CACHE=../assets/generation/final_conditions_top_p_train
-export TOP_P_MAPPER_CKPT=../assets/generation/mapper20k/latest.pt
 export TOP_P_SCORER_CKPT=../assets/generation/top_p_scorer/latest.pt
-export TOP_P_OUTPUT="$MOTAR_RESULTS/halton20k_top_p_seed0"
-bash scripts/launch_top_p_halton20k.sh
-~~~
-
-The launcher refuses an existing output directory and uses eight GPUs, global batch 256, seed 0, and 20,000 optimizer updates. It writes a rolling `latest.pt`. The model generates 2D IDs **only at the selected top-p positions**; the mapper's unselected proxy IDs are not substituted into the final decoder features.
-
-The final generation protocol first sweeps 2D CFG on a fixed 5k cohort, then evaluates the chosen setting on 50k samples. After a completed 20k run, the following command performs both steps and writes a `summary.json` under its output directory:
-
-~~~bash
-python experiments/feature_to_token_20260916/sweep_top_p_cfg.py \
-  --checkpoint "$TOP_P_OUTPUT/latest.pt" \
-  --mapper-checkpoint "$TOP_P_MAPPER_CKPT" \
-  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
-  --top-p-checkpoint "$TOP_P_CKPT" \
-  --output "$MOTAR_RESULTS/cfg_sweep_20k"
-~~~
-
-The sweep selects CFG on a fixed cohort before the final evaluation.
-
-### Continuous-context generation
-
-The latest MaskGIT code also provides a continuous 768D Halton context. It replaces proxy 2D IDs with an adapter that maps the 1D feature grid directly to Halton input embeddings. The selected positions are still generated as sparse 2D IDs. With the same variables above, a completed teacher-proxy cache and route-only cache are required:
-
-~~~bash
+export TOP_P_GT2D_CACHE=../assets/generation/gt2d_top_p_train
 export TOP_P_TEACHER_PROXY_CACHE=../assets/generation/teacher_proxy_top_p_train
 export TOP_P_ROUTE_CACHE=../assets/generation/top_p_continuous_route_cache
+
 bash scripts/launch_continuous_adapter20k.sh
 export CONTINUOUS_ADAPTER_CKPT="$MOTAR_RESULTS/continuous_adapter20k_seed20260918/latest.pt"
 bash scripts/launch_continuous_halton20k.sh
+
+python experiments/continuous_halton_embedding_20260923/sweep_cfg.py \
+  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
+  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
+  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
+  --top-p-checkpoint "$TOP_P_CKPT" \
+  --output "$MOTAR_RESULTS/continuous_cfg_sweep"
 ~~~
 
-The [generation guide](generation/README.md#continuous-768d-context-variant) includes the cache contract and continuous-branch evaluation command.
+The first launcher trains the continuous adapter, the second trains the sparse 2D MaskGIT, and the sweep selects CFG on a fixed 5k cohort before the 50k evaluation. Each training stage stops at 20,000 optimizer updates and writes `latest.pt`.
 
 ## Reproducibility and credits
 

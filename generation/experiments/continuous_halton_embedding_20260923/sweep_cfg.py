@@ -18,7 +18,7 @@ def score(root: Path, cfg: float, args, identity: dict) -> dict:
                '--checkpoint', str(args.checkpoint), '--output', str(destination),
                '--n', '5000', '--seed', '20260914', '--cfg-w', str(cfg),
                '--stage2-steps', '8', '--workers', '8',
-               '--mapper-checkpoint', str(args.mapper_checkpoint),
+               '--adapter-checkpoint', str(args.adapter_checkpoint),
                '--scorer-checkpoint', str(args.scorer_checkpoint),
                '--top-p-checkpoint', str(args.top_p_checkpoint)]
     with (root / f'{name}.log').open('w') as log:
@@ -39,7 +39,7 @@ def run(args):
     if model.get('status') != 'complete' or model.get('step') != 20000:
         raise RuntimeError('formal 20k Halton training has not completed')
     identities = {name: sha256(path) for name, path in (
-        ('halton', args.checkpoint), ('mapper', args.mapper_checkpoint),
+        ('halton', args.checkpoint), ('adapter', args.adapter_checkpoint),
         ('scorer', args.scorer_checkpoint), ('top_p', args.top_p_checkpoint),
         ('adm_reference', ASSETS / 'fid/VIRTUAL_imagenet256_labeled.npz'),
         ('adm_graph', ASSETS / 'fid/classify_image_graph_def.pb'))}
@@ -70,7 +70,7 @@ def run(args):
         if row['tokens'] != route:
             raise RuntimeError('fixed cohort route/token statistics changed across CFG values')
     if any(sha256(path) != identities[name] for name, path in (
-            ('halton', args.checkpoint), ('mapper', args.mapper_checkpoint),
+            ('halton', args.checkpoint), ('adapter', args.adapter_checkpoint),
             ('scorer', args.scorer_checkpoint), ('top_p', args.top_p_checkpoint))):
         raise RuntimeError('component checkpoint changed during sweep')
     chosen = min(results, key=lambda value: results[value]['fid'])
@@ -82,7 +82,7 @@ def run(args):
                '--checkpoint', str(args.checkpoint), '--output', str(destination),
                '--n', '50000', '--seed', '20260914', '--cfg-w', str(chosen),
                '--stage2-steps', '8', '--workers', '8',
-               '--mapper-checkpoint', str(args.mapper_checkpoint),
+               '--adapter-checkpoint', str(args.adapter_checkpoint),
                '--scorer-checkpoint', str(args.scorer_checkpoint),
                '--top-p-checkpoint', str(args.top_p_checkpoint)]
     with (root / 'final_50k.log').open('w') as log:
@@ -100,7 +100,7 @@ def run(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--checkpoint', type=Path, required=True)
-    parser.add_argument('--mapper-checkpoint', type=Path, required=True)
+    parser.add_argument('--adapter-checkpoint', type=Path, required=True)
     parser.add_argument('--scorer-checkpoint', type=Path, required=True)
     parser.add_argument('--top-p-checkpoint', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)

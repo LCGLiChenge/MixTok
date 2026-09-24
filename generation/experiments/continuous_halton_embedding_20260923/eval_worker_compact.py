@@ -21,13 +21,13 @@ import torch
 from bert2d.paths import ASSETS,ONE_D,EVALUATOR,atomic_json,output_path,sha256
 from bert2d.eval import ImageBert,OfficialSamplingView,to_uint8
 from h20.assets import official_model
-from experiments.feature_to_token_20260916.assets_top_p import (TopPFrozenAssets, TOP_P_SHA256, TOP_P_INFERENCE_SHA256)
-from experiments.continuous_halton_embedding_20260923.continuous_halton import ContinuousHalton as HaltonProxy
-from experiments.continuous_halton_embedding_20260923.continuous_halton import sample_continuous_completion as sample_halton_completion
+from experiments.continuous_halton_embedding_20260923.assets_top_p import (TopPFrozenAssets, TOP_P_SHA256, TOP_P_INFERENCE_SHA256)
+from experiments.continuous_halton_embedding_20260923.continuous_halton import ContinuousHalton
+from experiments.continuous_halton_embedding_20260923.continuous_halton import sample_continuous_completion
 from experiments.continuous_halton_embedding_20260923.parallel_eval import worker_batches
 from experiments.continuous_halton_embedding_20260923.embedding_adapter import load_adapter, FORMAT
-from experiments.feature_to_token_20260916.top_p_scorer_original import OneDTopPGridScorer, top_p_mask
-from experiments.feature_to_token_20260916.train_proxy_converter import make_features
+from experiments.continuous_halton_embedding_20260923.top_p_scorer import OneDTopPGridScorer, top_p_mask
+from experiments.continuous_halton_embedding_20260923.adapter_data import make_features
 
 
 def render(assets, features):
@@ -65,7 +65,7 @@ def main(args):
     digest=sha256(args.checkpoint)
     state=torch.load(args.checkpoint,map_location='cpu',mmap=True,weights_only=True)
     config=state['config'];step=state['step']
-    model=HaltonProxy(Path(config['upstream_root']))
+    model=ContinuousHalton(Path(config['upstream_root']))
     model.load_state_dict(state['model'],strict=True)
     model=model.to(device).eval().requires_grad_(False)
     del state
@@ -85,41 +85,41 @@ def main(args):
     scorer.load_state_dict(scorer_state['model'],strict=True)
     scorer=scorer.eval().requires_grad_(False)
     del scorer_state
-    mapper_digest=sha256(args.mapper_checkpoint)
-    parent_mapper_sha=config['top_p_condition_audit']['config']['mapper_sha256']
+    adapter_digest=sha256(args.adapter_checkpoint)
+    parent_adapter_sha=config['adapter_sha256']
     joint_finetune=bool(config.get('joint_finetune',False))
     if joint_finetune:
-        if args.allow_adapter_override or mapper_digest!=config.get('joint_adapter_sha256'):
+        if args.allow_adapter_override or adapter_digest!=config.get('joint_adapter_sha256'):
             raise RuntimeError('joint Halton requires its paired fine-tuned adapter')
-        adapter_state=torch.load(args.mapper_checkpoint,map_location='cpu',mmap=True,weights_only=True)
+        adapter_state=torch.load(args.adapter_checkpoint,map_location='cpu',mmap=True,weights_only=True)
         candidate_config=adapter_state['train_config']
         if (candidate_config.get('joint_finetune') is not True
-                or candidate_config.get('parent_adapter_sha256')!=parent_mapper_sha
+                or candidate_config.get('parent_adapter_sha256')!=parent_adapter_sha
                 or candidate_config.get('parent_halton_sha256')
                     !=config.get('parent_halton_checkpoint_sha256')):
             raise RuntimeError('joint adapter has the wrong parent model lineage')
         del adapter_state
         required_step=config['adapter_step']
     elif args.allow_adapter_override:
-        adapter_state=torch.load(args.mapper_checkpoint,map_location='cpu',mmap=True,weights_only=True)
+        adapter_state=torch.load(args.adapter_checkpoint,map_location='cpu',mmap=True,weights_only=True)
         candidate_config=adapter_state['train_config']
-        if (candidate_config.get('parent_adapter_sha256')!=parent_mapper_sha
+        if (candidate_config.get('parent_adapter_sha256')!=parent_adapter_sha
                 or candidate_config.get('parent_halton_sha256')!=digest):
             raise RuntimeError('adapter override does not descend from this Halton/adapter pair')
         del adapter_state
         required_step=args.adapter_step
     else:
-        if mapper_digest!=parent_mapper_sha or args.adapter_step is not None:
-            raise RuntimeError('evaluation mapper differs from training proxy cache')
+        if adapter_digest!=parent_adapter_sha or args.adapter_step is not None:
+            raise RuntimeError('evaluation adapter differs from training checkpoint')
         required_step=config['adapter_step']
-    mapper, mapper_config = load_adapter(args.mapper_checkpoint, device, top_p_digest, required_step)
-    mapper_audit=dict(checkpoint=str(args.mapper_checkpoint.resolve()),sha256=mapper_digest,
+    adapter, adapter_config = load_adapter(args.adapter_checkpoint, device, top_p_digest, required_step)
+    adapter_audit=dict(checkpoint=str(args.adapter_checkpoint.resolve()),sha256=adapter_digest,
                       step=required_step,format=FORMAT,
                       inference_scale=args.context_scale,training_scale=1.0,
                       override_of_training_adapter=args.allow_adapter_override,
                       joint_finetune=joint_finetune,
-                      parent_training_adapter_sha256=parent_mapper_sha,
-                      parameters=sum(p.numel() for p in mapper.parameters()))
+                      parent_training_adapter_sha256=parent_adapter_sha,
+                      parameters=sum(p.numel() for p in adapter.parameters()))
     router_audit=dict(mode='top-p-1d-only-scorer',checkpoint=str(args.scorer_checkpoint.resolve()),
                       sha256=scorer_digest,p=args.router_p,training_p=.75,temperature=2.,
                       selection='sorted probability prefix where cumulative-before < p')
@@ -144,7 +144,7 @@ def main(args):
                          randomize_temperature=args.stage1_randomize_temperature)
     from bert2d.assets import FID,check
     for item in FID: check(ASSETS/item['local_path'],item)
-    spec=importlib.util.spec_from_file_location('halton_proxy_adm',EVALUATOR)
+    spec=importlib.util.spec_from_file_location('halton_adm',EVALUATOR)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     module.INCEPTION_V3_PATH=str(ASSETS/'fid/classify_image_graph_def.pb')
     tf=module.tf;tf.disable_eager_execution()
@@ -162,13 +162,13 @@ def main(args):
                 'temperature':args.stage2_logit_scale,
                 'logit_scale':args.stage2_logit_scale,
                 'conventional_temperature':1.0/args.stage2_logit_scale},
-        context=dict(mode='continuous_1d_spatial_context',precision='BF16 adapter / FP32 f1d',**mapper_audit),
+        context=dict(mode='continuous_1d_spatial_context',precision='BF16 adapter / FP32 f1d',**adapter_audit),
         decoder_identities=decoder_identities,primary='full_refine',
         full_refine='unselected continuous 1D features unchanged; selected directly replaced by 2D',
         no_gt_images_or_2d_used=True,source_sha256=sha256(Path(__file__)),
         reference=str(ASSETS/'fid/VIRTUAL_imagenet256_labeled.npz'))
     manifest['generation_parameters'] = {name:sum(p.numel() for p in module.parameters()) for name,module in
-        [('one_d',one_d),('halton',model),('adapter',mapper),('scorer',scorer)]}
+        [('one_d',one_d),('halton',model),('adapter',adapter),('scorer',scorer)]}
     manifest['generation_parameters']['total'] = sum(manifest['generation_parameters'].values())
     manifest['physical_gpu']=os.environ['CUDA_VISIBLE_DEVICES']
     atomic_json(out/f'manifest_shard{shard_id}.json',manifest)
@@ -197,23 +197,23 @@ def main(args):
                 route_max_k=max(route_max_k,int(route_counts.max()))
                 route_hist+=torch.bincount(route_counts,minlength=257).cpu().numpy()
                 with torch.autocast('cuda',dtype=torch.bfloat16):
-                    proxy=torch.cat([mapper(part.float()) for part in base.split(4)])
+                    context=torch.cat([adapter(part.float()) for part in base.split(4)])
                 if args.context_scale!=1.0:
-                    proxy=proxy*args.context_scale
-                anchors=proxy[~selected].clone()
+                    context=context*args.context_scale
+                anchors=context[~selected].clone()
                 rgb=torch.cat([render(assets,part) for part in base.split(4)])
                 torch.manual_seed(args.seed+2*int(ids[0])+1)
                 trace=[]
                 with torch.autocast('cuda',dtype=torch.bfloat16):
-                    completed=sample_halton_completion(
-                        model, proxy, selected, labels, Path(config['upstream_root']),
+                    completed=sample_continuous_completion(
+                        model, context, selected, labels, Path(config['upstream_root']),
                         steps=args.stage2_steps, cfg_w=args.cfg_w,
                         temperature=args.stage2_logit_scale, trace=trace)
-                if not torch.equal(proxy[~selected],anchors): raise RuntimeError('continuous anchors changed')
+                if not torch.equal(context[~selected],anchors): raise RuntimeError('continuous anchors changed')
                 mixed=mixed_direct(assets,base,completed,selected)
                 pixels=dict(base=to_uint8(rgb),full_refine=to_uint8(torch.cat([render(assets,part) for part in mixed.split(4)])))
                 if offset==0:
-                    np.savez_compressed(out/f'first_shard{shard}.npz',ids=ids,context=proxy.float().cpu().numpy(),
+                    np.savez_compressed(out/f'first_shard{shard}.npz',ids=ids,context=context.float().cpu().numpy(),
                                         completed=completed.cpu().numpy(),selected=selected.cpu().numpy(),**pixels)
                     atomic_json(out/f'trace_shard{shard}.json',trace)
                 for name,images in pixels.items():
@@ -264,7 +264,7 @@ if __name__=='__main__':
     p.add_argument('--router-p',type=float,default=0.75)
     p.add_argument('--scorer-checkpoint',type=Path,required=True)
     p.add_argument('--top-p-checkpoint',type=Path,required=True)
-    p.add_argument('--mapper-checkpoint',type=Path,required=True)
+    p.add_argument('--adapter-checkpoint',type=Path,required=True)
     p.add_argument('--allow-adapter-override',action='store_true')
     p.add_argument('--adapter-step',type=int)
     p.add_argument('--worker-shard',type=int,choices=range(8),required=True)

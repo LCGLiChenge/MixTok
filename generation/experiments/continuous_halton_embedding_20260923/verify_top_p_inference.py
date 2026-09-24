@@ -10,7 +10,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 import torch
 
 from bert2d.paths import ASSETS
-from experiments.feature_to_token_20260916.assets_top_p import (
+from experiments.continuous_halton_embedding_20260923.assets_top_p import (
     TOP_P_INFERENCE_SHA256,
     TOP_P_SHA256,
     TopPFrozenAssets,

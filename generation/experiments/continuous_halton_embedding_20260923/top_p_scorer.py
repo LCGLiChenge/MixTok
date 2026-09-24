@@ -38,7 +38,7 @@ def setup_dist():
 
 
 class OneDTopPGridScorer(nn.Module):
-    """The old Grid Scorer trunk with all x_base/f2d paths removed."""
+    """Grid scorer using only the frozen 1D feature grid."""
 
     def __init__(self, channels=256, hidden=128, depth=3):
         super().__init__()

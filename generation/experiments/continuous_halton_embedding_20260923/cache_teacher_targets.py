@@ -1,4 +1,4 @@
-"""Cache dense 2D proxy tokens obtained by re-encoding the decoded 1D base RGB.
+"""Cache teacher token IDs for the continuous embedding adapter.
 
 The cache is deterministic and resumable.  Multiple ranks own disjoint flat
 sample IDs and write into one pre-created uint16 NPY array.  No Router, 2D GT
@@ -25,7 +25,7 @@ os.environ.setdefault("USE_TF", "0")
 
 from bert2d.paths import ASSETS, atomic_json, sha256
 from h20.assets import specifications
-from experiments.feature_to_token_20260916.assets_top_p import TopPFrozenAssets
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets
 
 
 FORMAT = "top_p_1d_base_rgb_reencoded_proxy_v1"
@@ -89,7 +89,7 @@ def encode_batch(models: nn.ModuleDict, ids: torch.Tensor) -> tuple[torch.Tensor
     require(rgb.dtype == torch.float32 and rgb.shape[1:] == (3, 256, 256), "RGB contract")
     require(bool(torch.isfinite(rgb).all()), "non-finite RGB")
     codes = models["vq"].encode(rgb * 2.0 - 1.0)[2][2].reshape(len(ids), 256).long()
-    require(bool(((codes >= 0) & (codes < 16384)).all()), "proxy ID outside [0,16383]")
+    require(bool(((codes >= 0) & (codes < 16384)).all()), "teacher ID outside [0,16383]")
     return codes, rgb
 
 
@@ -277,7 +277,7 @@ def finalize(args) -> None:
         chunk = np.asarray(values[offset:offset + 8192])
         low = min(low, int(chunk.min()))
         high = max(high, int(chunk.max()))
-    require(0 <= low <= high < 16384, "final proxy IDs invalid")
+    require(0 <= low <= high < 16384, "final teacher IDs invalid")
     summary = {
         **config,
         "status": "complete",
