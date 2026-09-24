@@ -251,14 +251,17 @@ def create_or_open_arrays(output_root, n, num_aug, rank, world_size, resume):
 
     arrays = {name: np.load(path, mmap_mode="r+") for name, path in paths.items()}
     expected = {
-        "titok": (n, num_aug, 32),
-        "llamagen": (n, num_aug, 256),
-        "labels": (n,),
-        "written": (n,),
+        "titok": ((n, num_aug, 32), np.uint16),
+        "llamagen": ((n, num_aug, 256), np.uint16),
+        "labels": ((n,), np.uint16),
+        "written": ((n,), np.uint8),
     }
-    for name, shape in expected.items():
-        if arrays[name].shape != shape:
-            raise ValueError(f"{paths[name]} has shape {arrays[name].shape}, expected {shape}")
+    for name, (shape, dtype) in expected.items():
+        if arrays[name].shape != shape or arrays[name].dtype != dtype:
+            raise ValueError(
+                f"{paths[name]} has shape/dtype {arrays[name].shape}/{arrays[name].dtype}, "
+                f"expected {shape}/{np.dtype(dtype)}"
+            )
     return arrays
 
 
@@ -311,7 +314,10 @@ def write_metadata(args, output_root, dataset, mot_info, world_size, completed, 
         "llamagen_loaded_keys": mot_info["loaded_keys"],
         "llamagen_unrestored_buffers": mot_info["unrestored_buffers"],
         "extraction_precision": args.mixed_precision,
+        "extraction_batch_size": args.batch_size,
+        "extraction_tf32": {"matmul": True, "cudnn": True},
         "world_size": world_size,
+        "run_config_sha256": sha256_file(Path(output_root) / "run_config.json"),
         "updated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
     (Path(output_root) / "meta.json").write_text(json.dumps(metadata, indent=2) + "\n")
@@ -334,10 +340,62 @@ def write_manifest(output_root):
         "llamagen_codes.npy",
         "labels.npy",
         "written.npy",
+        "run_config.json",
         "meta.json",
     )
     lines = [f"{sha256_file(root / name)}  {name}" for name in names]
     (root / "manifest.sha256").write_text("\n".join(lines) + "\n")
+
+def write_or_verify_run_config(args, dataset, mot_info, world_size, rank, arrays):
+    """Pin the numeric batch plan before any row can be marked complete."""
+    root = Path(args.output_root)
+    path = root / "run_config.json"
+    config = {
+        "format": "paired_top_p_codes_v1",
+        "samples": len(dataset),
+        "classes": len(dataset.classes),
+        "num_aug": 2 if args.aug_mode == "adm" else 1,
+        "data_path": str(Path(args.data_path).resolve()),
+        "image_list_sha256": sha256_file(args.image_list) if args.image_list else None,
+        "image_size": args.image_size,
+        "batch_size": args.batch_size,
+        "num_workers": args.num_workers,
+        "world_size": world_size,
+        "seed": args.seed,
+        "mixed_precision": args.mixed_precision,
+        "matmul_tf32": True,
+        "cudnn_tf32": True,
+        "codebook_size": args.codebook_size,
+        "codebook_embed_dim": args.codebook_embed_dim,
+        "titok_checkpoint_sha256": TITOK_SHA256,
+        "mot_checkpoint_sha256": mot_info["checkpoint_sha256"],
+        "gpu_name": torch.cuda.get_device_name(0),
+    }
+    error = None
+    if rank == 0:
+        try:
+            if path.exists():
+                saved = json.loads(path.read_text())
+                saved.pop("adopted_legacy_rows", None)
+                if not args.resume or saved != config:
+                    raise ValueError("resume configuration differs from the original extraction")
+            else:
+                completed = int(np.count_nonzero(arrays["written"]))
+                if args.resume and completed and not args.adopt_legacy_partial:
+                    raise ValueError(
+                        "partial cache lacks run_config.json; pass --adopt-legacy-partial "
+                        "only after verifying the original command"
+                    )
+                if args.resume and completed:
+                    config["adopted_legacy_rows"] = completed
+                temporary = path.with_suffix(".json.tmp")
+                temporary.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n")
+                temporary.replace(path)
+        except Exception as exc:
+            error = f"rank-0 extraction configuration failed: {type(exc).__name__}: {exc}"
+    broadcast_rank0_error(error, rank, world_size)
+    barrier(world_size)
+
 
 def main(args):
     if not torch.cuda.is_available():
@@ -362,6 +420,7 @@ def main(args):
 
     num_aug = 2 if args.aug_mode == "adm" else 1
     arrays = create_or_open_arrays(args.output_root, len(dataset), num_aug, rank, world_size, args.resume)
+    write_or_verify_run_config(args, dataset, mot_info, world_size, rank, arrays)
     sampler = PendingStridedSampler(len(dataset), rank, world_size, arrays["written"] if args.resume else None)
     loader = DataLoader(
         dataset,
@@ -376,6 +435,18 @@ def main(args):
     progress = tqdm(total=len(sampler), desc="extract packed codes", unit="img", disable=rank != 0)
     autocast_enabled = args.mixed_precision != "none"
     autocast_dtype = torch.bfloat16 if args.mixed_precision == "bf16" else torch.float16
+    uncommitted = []
+
+    def commit_rows():
+        if not uncommitted:
+            return
+        # Persist the code arrays before marking their rows complete. A crash
+        # before the bitmap flush causes safe re-extraction on --resume.
+        for name in ("titok", "llamagen", "labels"):
+            arrays[name].flush()
+        arrays["written"][np.concatenate(uncommitted)] = 1
+        arrays["written"].flush()
+        uncommitted.clear()
 
     with torch.inference_mode():
         for (titok_images, llamagen_images), labels, indices in loader:
@@ -406,12 +477,13 @@ def main(args):
             arrays["titok"][index_np] = titok_codes.cpu().numpy().astype(np.uint16, copy=False)
             arrays["llamagen"][index_np] = llamagen_codes.cpu().numpy().astype(np.uint16, copy=False)
             arrays["labels"][index_np] = labels.numpy().astype(np.uint16, copy=False)
-            arrays["written"][index_np] = 1
+            uncommitted.append(index_np.copy())
+            if len(uncommitted) >= args.flush_every:
+                commit_rows()
             progress.update(batch_size)
 
+    commit_rows()
     progress.close()
-    for array in arrays.values():
-        array.flush()
     barrier(world_size)
     if rank == 0:
         written_count = int(np.count_nonzero(arrays["written"]))
@@ -438,9 +510,13 @@ if __name__ == "__main__":
     parser.add_argument("--aug-mode", default="adm", choices=["adm", "none"])
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=8)
+    parser.add_argument("--flush-every", type=int, default=25,
+                        help="Persist codes, then completion flags, every N batches")
     parser.add_argument("--num-classes", type=int, default=1000)
     parser.add_argument("--limit-samples", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--adopt-legacy-partial", action="store_true",
+                        help="Record the current command for a pre-config partial cache")
     parser.add_argument("--mixed-precision", default="none", choices=["none", "bf16", "fp16"])
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--titok-root", required=True)
@@ -449,4 +525,9 @@ if __name__ == "__main__":
     parser.add_argument("--llamagen-root", required=True)
     parser.add_argument("--codebook-size", type=int, default=16384)
     parser.add_argument("--codebook-embed-dim", type=int, default=8)
-    main(parser.parse_args())
+    args = parser.parse_args()
+    if args.flush_every < 1:
+        parser.error("--flush-every must be positive")
+    if args.adopt_legacy_partial and not args.resume:
+        parser.error("--adopt-legacy-partial requires --resume")
+    main(args)

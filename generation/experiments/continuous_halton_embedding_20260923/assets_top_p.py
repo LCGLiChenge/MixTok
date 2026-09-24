@@ -28,8 +28,8 @@ def verified_top_p_artifact(path: Path) -> str:
     return digest
 
 
-def verify_source_meta(meta: dict) -> None:
-    """Validate portable checkpoint provenance in newly extracted paired caches."""
+def verify_source_meta(meta: dict, root: Path) -> None:
+    """Validate portable checkpoint and extraction-plan provenance."""
     keys = ("mot_source_sha256", "mot_checkpoint_sha256", "titok_checkpoint_sha256")
     if not any(key in meta for key in keys):
         return  # Historical caches predate content-hash metadata.
@@ -37,6 +37,17 @@ def verify_source_meta(meta: dict) -> None:
             or meta.get("mot_checkpoint_sha256") not in (TOP_P_SHA256, TOP_P_INFERENCE_SHA256)
             or meta.get("titok_checkpoint_sha256") != TITOK_SHA256):
         raise RuntimeError("paired source cache checkpoint identity differs")
+    if "run_config_sha256" in meta:
+        config_path = Path(root) / "run_config.json"
+        if sha256(config_path) != meta["run_config_sha256"]:
+            raise RuntimeError("paired source run configuration hash differs")
+        import json
+        config = json.loads(config_path.read_text())
+        if (config.get("batch_size") != meta.get("extraction_batch_size")
+                or config.get("world_size") != meta.get("world_size")
+                or config.get("mot_checkpoint_sha256") != meta["mot_checkpoint_sha256"]
+                or config.get("titok_checkpoint_sha256") != TITOK_SHA256):
+            raise RuntimeError("paired source run configuration differs from metadata")
 
 
 class TopPFrozenAssets:

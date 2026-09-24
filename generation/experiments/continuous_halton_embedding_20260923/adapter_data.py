@@ -54,7 +54,7 @@ def training_order(rows: np.ndarray, count: int, seed: int,
 def load_data_contract(codes_root: Path, proxy_root: Path, top_p_sha256: str):
     meta_path = codes_root / "meta.json"
     meta = json.loads(meta_path.read_text())
-    verify_source_meta(meta)
+    verify_source_meta(meta, codes_root)
     require(meta.get("completed") is True, "packed cache is incomplete")
     require(int(meta.get("num_samples", -1)) == NUM_SOURCES, "wrong source count")
     require(int(meta.get("num_aug", -1)) == NUM_AUG, "two ADM views required")

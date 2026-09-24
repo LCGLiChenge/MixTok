@@ -26,7 +26,7 @@ def require(ok, message):
 
 def source_codes(root):
     meta = json.loads((root / 'meta.json').read_text())
-    verify_source_meta(meta)
+    verify_source_meta(meta, root)
     require(meta.get('completed') is True and int(meta.get('num_samples', -1)) == NUM_SOURCES,
             'paired top-p source cache is incomplete')
     require(int(meta.get('num_aug', -1)) == NUM_AUG and int(meta.get('mot_step', -1)) == 247482

@@ -95,7 +95,7 @@ def encode_batch(models: nn.ModuleDict, ids: torch.Tensor) -> tuple[torch.Tensor
 def source_contract(codes_root: Path, top_p_ckpt: Path):
     meta_path = codes_root / "meta.json"
     meta = json.loads(meta_path.read_text())
-    verify_source_meta(meta)
+    verify_source_meta(meta, codes_root)
     require(meta.get("completed") is True and int(meta.get("format_version", -1)) == 1, "bad cache meta")
     require(int(meta.get("num_samples", -1)) == 1_281_167, "full ImageNet train required")
     require(int(meta.get("num_aug", -1)) == 2 and meta.get("augmentation") == "adm", "two ADM views required")

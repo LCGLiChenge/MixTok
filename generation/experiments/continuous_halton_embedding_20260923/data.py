@@ -18,7 +18,7 @@ class ContinuousRouteDataset(Dataset):
         config = json.loads((cache_root/'config.json').read_text())
         summary = json.loads((cache_root/'summary.json').read_text())
         meta = json.loads((gt_root/'meta.json').read_text())
-        verify_source_meta(meta)
+        verify_source_meta(meta, gt_root)
         if (config['format'] != FORMAT or summary['status'] != 'complete'
             or config['top_p_checkpoint_sha256'] != TOP_P_SHA256
             or summary['config_sha256'] != sha256(cache_root/'config.json')
