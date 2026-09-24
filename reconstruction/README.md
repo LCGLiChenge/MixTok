@@ -73,7 +73,7 @@ public TiTok/LlamaGen weights
   -> fixed96_from_adapter_20epoch
 ```
 
-This 2.5 + 20-epoch initialization is the source of the evaluated top-p checkpoint. The third stage is described under **Train** below; its provided direct six-epoch config differs from the earlier 5+1 top-p continuation.
+Stage 3 trains dynamic top-p for 6 epochs.
 
 ## Environment
 

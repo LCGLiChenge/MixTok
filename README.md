@@ -116,7 +116,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --standalone --nproc_per_node=8 \
   --config configs/top_p_train.yaml
 ~~~
 
-Stage 3 defaults to `weights/epoch_0020_step_00199440.pt`. If Stage 2 produced a different filename, change `resume` before launching Stage 3. The evaluated checkpoint used the adapter → fixed-budget → top-p stage sequence. The checked-in configs describe that sequence, but its direct six-epoch Stage 3 differs from the evaluated 5+1 continuation schedule.
+Stage 3 runs for 6 epochs. It defaults to `weights/epoch_0020_step_00199440.pt`; if Stage 2 produced a different filename, change `resume` before launching.
 
 ### Validation
 
