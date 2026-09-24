@@ -1,8 +1,8 @@
 # MoT: End-to-End Top-p Dynamic Token Allocation
 
-This repository contains only the current MoT reconstruction pipeline: an end-to-end Router selects a variable number of 2D refinement grids with a differentiable top-p mask, while the tokenizer and decoder are jointly optimized.
+This directory contains the current MoT reconstruction pipeline: an end-to-end Router selects a variable number of 2D refinement grids with a differentiable top-p mask, while the tokenizer and decoder are jointly optimized.
 
-Older fixed-ratio, E83 search, and E117/AR experiments are intentionally excluded from this branch.
+The fixed-budget warm-start is included below. Earlier exploratory search and AR experiments are outside this reconstruction directory.
 
 ## Fixed 0.375 pretraining
 
@@ -90,23 +90,24 @@ conda env create -n MoT -f environment.yml
 conda activate MoT
 ```
 
-The default configs assume the following sibling layout:
+The default configs are run from `reconstruction/` and assume these sibling paths in the merged repository:
 
 ```text
-reconstruction/
-../1d-tokenizer/
-  modeling/titok.py
-  configs/infer/TiTok/titok_l32.yaml
-  tokenizer_titok_l32.bin
-../LlamaGen/
-  tokenizer/tokenizer_image/vq_model.py
-  pretrained_models/vq_ds16_c2i.pt
-../ImageNet/
-  train/
-  validation/
-../.cache/
-  torch/hub/facebookresearch_dinov2_main/
-  open_clip/
+repo/
+  reconstruction/
+  1d-tokenizer/
+    modeling/titok.py
+    configs/infer/TiTok/titok_l32.yaml
+    tokenizer_titok_l32.bin
+  LlamaGen/
+    tokenizer/tokenizer_image/vq_model.py
+    pretrained_models/vq_ds16_c2i.pt
+  ImageNet/
+    train/
+    validation/
+  .cache/
+    torch/hub/facebookresearch_dinov2_main/
+    open_clip/
 ```
 
 Public weights and feature backbones can be prepared with:
