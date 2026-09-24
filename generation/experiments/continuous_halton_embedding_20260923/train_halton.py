@@ -197,8 +197,9 @@ def run(args):
                   top_p_condition_audit=dict(config=cache_config,summary=cache_summary),
                   source_sha256={name: sha256(Path(__file__).with_name(name))
                                   for name in ("continuous_halton.py", "embedding_adapter.py", "data.py",
-                                              "async_eval.py", "eval_worker.py",
-                                              "parallel_eval.py", Path(__file__).name)})
+                                              "async_eval.py", "eval_worker.py", "parallel_eval.py",
+                                              "eval_worker_compact.py", "parallel_eval_compact.py",
+                                              Path(__file__).name)})
     data = ContinuousRouteDataset(args.source_root, args.source_root, args.cache_root)
     if len(data) != 2562334:
         raise RuntimeError("unexpected dataset size")
