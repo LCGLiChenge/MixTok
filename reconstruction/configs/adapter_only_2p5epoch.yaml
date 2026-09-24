@@ -1,0 +1,77 @@
+# Stage 1 of the clean recipe: align TiTok-L32 tokens to the frozen
+# LlamaGen decoder feature space. No 2D-grid selection or mixed reconstruction.
+data_path: ../ImageNet/train
+output_dir: results/adapter_only_2p5epoch
+resume: ""
+reset_optimizer: true
+
+image_size: 256
+titok_input_range: zero_1
+llamagen_input_range: minus1_1
+random_crop: false
+random_flip: false
+batch_size: 12
+accum_steps: 1
+epochs: 2.5
+max_steps: 0
+num_workers: 16
+limit_samples: 0
+
+# A single clean schedule replacing the historical sequence of short probes.
+lr: 5.0e-5
+lr_d: 1.0e-5
+lr_scheduler: cosine
+warmup_steps: 1000
+min_lr: 5.0e-7
+weight_decay: 1.0e-4
+max_grad_norm: 1.0
+mixed_precision: bf16
+use_ema: true
+ema_decay: 0.999
+
+image_loss: l1
+perceptual_loss: lpips
+lambda_perceptual: 0.5
+lambda_lpips: 0.5
+lambda_l1: 1.0
+lambda_feat: 0.05
+lambda_feat_moment: 0.05
+lambda_mix: 0.0
+
+# GAN is intentionally disabled here. It starts in Stage 2 after the
+# Grid-Scorer-only and GAN-free joint warm-up periods.
+lambda_gan: 0.0
+gan_start_step: 0
+gan_ramp_steps: 0
+discriminator_factor: 1.0
+d_every: 1
+lecam_regularization_weight: 0.001
+lecam_ema_decay: 0.999
+discriminator_type: patch
+
+mask_ratio_min: 0.0
+mask_ratio_max: 0.0
+log_every: 50
+sample_every: 1000
+sample_images: 8
+save_every: 1000
+save_step_checkpoints: false
+
+lg_latent_channels: 256
+lg_head_channels: 256
+latent_head_mode: feature
+codebook_temperature: 1.0
+codebook_temperature_final: null
+codebook_temperature_warmup_steps: 0
+lambda_codebook_entropy: 0.0
+codebook_entropy_target: 0.0
+lambda_codebook_ce: 0.0
+codebook_ce_label_smoothing: 0.0
+
+titok_root: ../1d-tokenizer
+titok_config: ../1d-tokenizer/configs/infer/TiTok/titok_l32.yaml
+titok_ckpt: ../1d-tokenizer/tokenizer_titok_l32.bin
+llamagen_root: ../LlamaGen
+llamagen_ckpt: ../LlamaGen/pretrained_models/vq_ds16_c2i.pt
+codebook_size: 16384
+codebook_embed_dim: 8

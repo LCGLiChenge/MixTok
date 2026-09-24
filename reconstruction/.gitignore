@@ -1,0 +1,10 @@
+.cache/
+cache/
+results/
+wandb/
+__pycache__/
+*.py[cod]
+*.log
+condaenv.*.requirements.txt
+weights/*
+!weights/.gitkeep

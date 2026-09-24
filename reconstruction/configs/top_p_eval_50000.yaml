@@ -1,0 +1,57 @@
+ckpt: results/top_p_from_fixed_6epoch/epoch_0006_step_00247482.pt
+use_model_ema: true
+require_latent_decoder: true
+adapter_init: ""
+base_ckpt: ""
+
+data_path: ../ImageNet/validation
+dataset_manifest: ""
+output_json: results/top_p_eval_50000.json
+num_images: 50000
+batch_size: 64
+num_workers: 16
+seed: 0
+image_size: 256
+titok_input_range: zero_1
+llamagen_input_range: minus1_1
+mixed_precision: bf16
+
+mask_selection: router_e2e_top_p
+mask_ratio_min: 0.0
+mask_ratio_max: 1.0
+mask_ratio: 0.375
+selector_threshold: 0.3
+use_checkpoint_selector_threshold: true
+score_normalize_scope: per_image
+
+router_hidden_dim: 128
+router_depth: 3
+router_min_ratio: 0.0
+router_max_ratio: 1.0
+router_target_mean_ratio: 0.375
+router_min_tokens: -1
+router_max_tokens: -1
+router_tau: 0.7
+router_top_p: 0.994897
+router_top_p_temperature: 1.0
+router_top_p_ste_tau: 0.01
+router_top_p_grid: []
+router_top_p_temperature_grid: []
+router_detach_inputs: true
+
+eval_paths: [mix]
+fid_feature: 2048
+lpips_net: alex
+no_fid: false
+no_ssim: true
+lpips_only: false
+
+lg_latent_channels: 256
+lg_head_channels: 256
+titok_root: ../1d-tokenizer
+titok_config: ../1d-tokenizer/configs/infer/TiTok/titok_l32.yaml
+titok_ckpt: ../1d-tokenizer/tokenizer_titok_l32.bin
+llamagen_root: ../LlamaGen
+llamagen_ckpt: ../LlamaGen/pretrained_models/vq_ds16_c2i.pt
+codebook_size: 16384
+codebook_embed_dim: 8

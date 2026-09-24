@@ -1,0 +1,19 @@
+# Local dependencies and data, supplied by the reviewer
+/ImageNet/
+/1d-tokenizer/
+/LlamaGen/
+/Halton-MaskGIT/
+/assets/
+/results/
+/.cache/
+/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/wandb/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.npy
+*.npz
+*.log
