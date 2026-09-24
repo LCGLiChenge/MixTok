@@ -105,7 +105,7 @@ def run(args):
                 context_scale=args.context_scale,
                 stage2_logit_scale=args.stage2_logit_scale,
                 router_p=args.router_p,
-                prune_unused_one_d=args.prune_unused_one_d,
+                prune_unused_one_d=True,
                 adapter_override=args.allow_adapter_override,
                 adapter_step=args.adapter_step,
                 mapper_checkpoint=(str(args.mapper_checkpoint.resolve()) if args.mapper_checkpoint else None),
@@ -145,8 +145,6 @@ def run(args):
                 command.extend(('--scorer-checkpoint',str(args.scorer_checkpoint)))
             if args.top_p_checkpoint is not None:
                 command.extend(('--top-p-checkpoint',str(args.top_p_checkpoint)))
-            if args.prune_unused_one_d:
-                command.append('--prune-unused-one-d')
             try: child=subprocess.Popen(command,env=env,stdout=log,stderr=subprocess.STDOUT)
             except BaseException: log.close();raise
             workers.append((child,log))
@@ -233,8 +231,6 @@ def cli():
                    help='multiply sampled 2D logits; conventional temperature is its reciprocal')
     p.add_argument('--router-p',type=float,default=0.75,
                    help='inference-time top-p refinement mass; training used 0.75')
-    p.add_argument('--prune-unused-one-d',action='store_true',
-                   help='remove four wrapper-only 2D interfaces after loading official 1D weights')
     p.add_argument('--scorer-checkpoint',type=Path,required=True)
     p.add_argument('--top-p-checkpoint',type=Path,required=True)
     p.add_argument('--mapper-checkpoint',type=Path)

@@ -124,21 +124,20 @@ def main(args):
                       sha256=scorer_digest,p=args.router_p,training_p=.75,temperature=2.,
                       selection='sorted probability prefix where cumulative-before < p')
     one_d,one_d_audit=official_model(ASSETS)
-    if args.prune_unused_one_d:
-        before=sum(p.numel() for p in one_d.parameters())
-        removed=0
-        for name in ('embedding_2d','pos_embedding_2d','budget_embedding','output_2d'):
-            module=getattr(one_d,name,None)
-            if module is None:
-                raise RuntimeError(f'missing unused 1D wrapper module: {name}')
-            removed+=sum(p.numel() for p in module.parameters())
-            delattr(one_d,name)
-        after=sum(p.numel() for p in one_d.parameters())
-        if (before,removed,after)!=(202585088,25382656,177202432):
-            raise RuntimeError('unexpected 1D wrapper parameter ledger after pruning')
-        one_d_audit=dict(one_d_audit,unused_2d_interfaces_pruned=True,
-                         removed_parameters=removed,parameters_before=before,
-                         parameters_after=after)
+    before=sum(p.numel() for p in one_d.parameters())
+    removed=0
+    for name in ('embedding_2d','pos_embedding_2d','budget_embedding','output_2d'):
+        module=getattr(one_d,name,None)
+        if module is None:
+            raise RuntimeError(f'missing unused 1D wrapper module: {name}')
+        removed+=sum(p.numel() for p in module.parameters())
+        delattr(one_d,name)
+    after=sum(p.numel() for p in one_d.parameters())
+    if (before,removed,after)!=(202585088,25382656,177202432):
+        raise RuntimeError('unexpected 1D wrapper parameter ledger after pruning')
+    one_d_audit=dict(one_d_audit,unused_2d_interfaces_pruned=True,
+                     removed_parameters=removed,parameters_before=before,
+                     parameters_after=after)
     one_d=one_d.to(device).eval().requires_grad_(False)
     view=OfficialSamplingView(one_d).eval()
     stage1_sampling=dict(ONE_D,guidance_scale=args.stage1_guidance_scale,
@@ -263,7 +262,6 @@ if __name__=='__main__':
     p.add_argument('--stage2-steps',type=int,choices=(1,2,4,6,8,16,32),default=8)
     p.add_argument('--stage2-logit-scale',type=float,default=1.0)
     p.add_argument('--router-p',type=float,default=0.75)
-    p.add_argument('--prune-unused-one-d',action='store_true')
     p.add_argument('--scorer-checkpoint',type=Path,required=True)
     p.add_argument('--top-p-checkpoint',type=Path,required=True)
     p.add_argument('--mapper-checkpoint',type=Path,required=True)
