@@ -1988,7 +1988,7 @@ def main(args):
             count = 0
             start_time = time.time()
 
-        if is_main and args.sample_every > 0 and (step == 1 or step % args.sample_every == 0):
+        if is_main and args.sample_every > 0 and args.sample_images > 0 and (step == 1 or step % args.sample_every == 0):
             save_adapt_grid(
                 out_dir / "samples" / f"step_{step:08d}.png",
                 last["x_lg"],
