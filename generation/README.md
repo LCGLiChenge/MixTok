@@ -44,6 +44,8 @@ python experiments/continuous_halton_embedding_20260923/sweep_cfg.py \
 
 The first stage trains the embedding adapter against the official Halton embedding table using the teacher-token cache. The second stage freezes that adapter and trains sparse Halton MaskGIT using the route-only cache. `sweep_cfg.py` selects CFG on a fixed 5k cohort, then evaluates the selected setting on 50k samples. Both training stages write a rolling `latest.pt`.
 
+When evaluating a checkpoint trained on another machine, set `HALTON_UPSTREAM_ROOT` to the local Halton-MaskGIT source checkout. The evaluator checks that its six upstream source files match the hashes saved in the checkpoint before loading the model. `parallel_eval_compact.py` also accepts an inference-only top-p EMA export; the training scripts require the full top-p checkpoint.
+
 ### Build the caches
 
 [`cache_teacher_targets.py`](experiments/continuous_halton_embedding_20260923/cache_teacher_targets.py) builds the teacher-token cache by decoding each 1D base image and re-encoding it with the frozen top-p VQ model. [`cache_routes.py`](experiments/continuous_halton_embedding_20260923/cache_routes.py) applies the accepted scorer to the frozen 1D features and records only the selected top-p positions. Neither cache builder trains a generator.

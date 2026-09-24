@@ -23,6 +23,7 @@ from bert2d.eval import ImageBert,OfficialSamplingView,to_uint8
 from h20.assets import official_model
 from experiments.continuous_halton_embedding_20260923.assets_top_p import (TopPFrozenAssets, TOP_P_SHA256, TOP_P_INFERENCE_SHA256)
 from experiments.continuous_halton_embedding_20260923.continuous_halton import ContinuousHalton
+from experiments.continuous_halton_embedding_20260923.halton_upstream import resolve_upstream_root
 from experiments.continuous_halton_embedding_20260923.continuous_halton import sample_continuous_completion
 from experiments.continuous_halton_embedding_20260923.parallel_eval import worker_batches
 from experiments.continuous_halton_embedding_20260923.embedding_adapter import load_adapter, FORMAT
@@ -65,7 +66,8 @@ def main(args):
     digest=sha256(args.checkpoint)
     state=torch.load(args.checkpoint,map_location='cpu',mmap=True,weights_only=True)
     config=state['config'];step=state['step']
-    model=ContinuousHalton(Path(config['upstream_root']))
+    upstream_root=resolve_upstream_root(config)
+    model=ContinuousHalton(upstream_root)
     model.load_state_dict(state['model'],strict=True)
     model=model.to(device).eval().requires_grad_(False)
     del state
@@ -206,7 +208,7 @@ def main(args):
                 trace=[]
                 with torch.autocast('cuda',dtype=torch.bfloat16):
                     completed=sample_continuous_completion(
-                        model, context, selected, labels, Path(config['upstream_root']),
+                        model, context, selected, labels, upstream_root,
                         steps=args.stage2_steps, cfg_w=args.cfg_w,
                         temperature=args.stage2_logit_scale, trace=trace)
                 if not torch.equal(context[~selected],anchors): raise RuntimeError('continuous anchors changed')

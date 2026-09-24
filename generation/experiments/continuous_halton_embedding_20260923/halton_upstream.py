@@ -22,6 +22,18 @@ def sha256(path: Path) -> str:
             digest.update(block)
     return digest.hexdigest()
 
+def resolve_upstream_root(config: dict) -> Path:
+    """Relocate a checkpoint's audited Halton source to this machine."""
+    root = Path(os.environ.get("HALTON_UPSTREAM_ROOT", config["upstream_root"])).expanduser().resolve()
+    for relative, expected in config["upstream_hashes"].items():
+        source = root / relative
+        if not source.is_file():
+            raise FileNotFoundError(f"Halton source missing: {source}; set HALTON_UPSTREAM_ROOT")
+        if sha256(source) != expected:
+            raise RuntimeError(f"Halton source differs from training checkpoint: {source}")
+    return root
+
+
 def upstream_transformer(root: Path):
     root = root.resolve()
     source = root / "Network/transformer.py"
