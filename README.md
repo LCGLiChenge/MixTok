@@ -16,13 +16,19 @@ MixTok represents an image with **32 global 1D tokens** and a variable number of
 2. **Adaptive refinement.** A scorer ranks the 256 grid locations. After temperature-scaled softmax, top-p selects the smallest ranked prefix whose cumulative probability reaches `p`. The selected count `K(x)` changes with each image.
 3. **Mixed decoding.** Selected locations receive 2D codebook features; unselected locations keep their continuous 1D-derived features. A shared decoder renders the mixed grid.
 
+<p align="center">
+  <img src="docs/recon_main.png" width="94%" alt="MixTok reconstruction: global 1D features, a reconstruction grid scorer, top-p selection, sparse 2D features, and a shared decoder." />
+</p>
+
+*MixTok reconstruction overview. The scorer and top-p controller select spatial locations for 2D refinement.*
+
 For **generation**, a TiTok MaskGIT first samples the 32 1D IDs. A scorer using the resulting 1D features selects 2D locations, and a sparse Halton MaskGIT generates IDs only there. This repository includes proxy-ID conditioning and a newer continuous-context variant that maps 1D features directly to Halton input embeddings. Unselected decoder locations keep their continuous 1D-derived features.
 
 <p align="center">
-  <img src="docs/maskgit.png" width="88%" alt="MixTok generation pipeline with a 1D MaskGIT, top-p grid selection, proxy mapper, sparse 2D MaskGIT, and shared decoder." />
+  <img src="docs/maskgit.png" width="88%" alt="MixTok generation pipeline with a 1D MaskGIT, top-p grid selection, continuous embedding adapter, sparse 2D MaskGIT, and shared decoder." />
 </p>
 
-*Class-conditional generation. The diagram illustrates the proxy-ID branch; the continuous-context variant replaces its proxy mapper with an embedding adapter.*
+*Class-conditional generation with continuous spatial context embeddings. The adapter maps 1D features into the 2D MaskGIT input space; only selected 2D tokens are generated.*
 
 The fixed **96/256** allocation belongs to reconstruction warm-start training. Final reconstruction and generation use image-dependent top-p selection, so the number of selected 2D locations changes with each image.
 

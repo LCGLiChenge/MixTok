@@ -56,6 +56,8 @@ The run uses global batch 256 (8×32), seed 0, peak LR `2e-5`, 2,500-step warmup
 
 The newer variant maps the 16 × 16 1D feature grid directly to 256 continuous, 768-dimensional Halton input embeddings. It uses the same top-p route policy, generates discrete 2D IDs only at selected locations, and keeps the 1D-derived continuous features at unselected decoder locations. Its embedding adapter starts from fresh parameters; it does not initialize from the proxy-ID mapper.
 
+![MixTok continuous embedding generation: 1D MaskGIT, top-p grid scorer, embedding adapter, sparse 2D MaskGIT, and shared decoder.](../docs/maskgit.png)
+
 The implementation is in [`experiments/continuous_halton_embedding_20260923/`](experiments/continuous_halton_embedding_20260923/). `train_adapter.py` fits the continuous adapter against the official Halton embedding table; `train_halton.py` trains the sparse generator; `sweep_cfg.py` runs the CFG search and final evaluation. `export_top_p_inference.py` can produce a smaller inference-only tokenizer checkpoint, and `verify_top_p_inference.py` checks its tensor equality against the full checkpoint. Training requires the full checkpoint.
 
 Besides the assets above, this variant needs a teacher-proxy cache for adapter targets and a completed **route-only cache** for Halton training. The latter contains `config.json`, `summary.json`, `route_indices.npy`, and `route_k.npy`. It must match the frozen tokenizer and scorer identities checked by [`data.py`](experiments/continuous_halton_embedding_20260923/data.py). The optional `prepare_h20.py` migrates route files from an existing completed proxy-ID baseline; pass both `--baseline-root` and a new `--root` directory. It does not download or rebuild the source caches.
