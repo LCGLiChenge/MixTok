@@ -26,10 +26,10 @@ These numbers describe evaluated checkpoints under the stated protocols. They ar
 
 | Pipeline | Evaluated protocol | Result | Checkpoint relationship |
 | --- | --- | --- | --- |
-| Reconstruction | ImageNet validation, 50,000 images at 256 × 256; EMA; hard top-p inference with `p=0.994897`, `T=1` | rFID **1.198612**, PSNR **19.5080**, LPIPS **0.222875**; mean **96.124** selected 2D tokens | Six-epoch top-p checkpoint at step **247482**, produced by the historical 5+1 continuation |
+| Reconstruction | ImageNet validation, 50,000 images at 256 × 256; EMA; hard top-p inference with `p=0.994897`, `T=1` | rFID **1.198612**, PSNR **19.5080**, LPIPS **0.222875**; mean **96.124** selected 2D tokens | Top-p checkpoint at step **247482**; initialized by adapter **2.5 epochs** and fixed-budget **20 epochs**, then trained with a 5+1 top-p continuation |
 | Generation | Class-conditional ImageNet-256, 50,000 samples; 8 TiTok + 8 Halton steps; 2D CFG **2.5** selected by a separate fixed-5k sweep | gFID **1.9209706**; mean **98.95888** generated 2D IDs, in addition to 32 1D IDs | Completed **20,000-update** Halton checkpoint |
 
-The checked-in `reconstruction/configs/top_p_train.yaml` specifies a **direct six-epoch run** from the fixed 20-epoch checkpoint. It is a distinct training lineage from the checkpoint used for the reported reconstruction row. Evaluate its output separately; do not assign the reference metrics to that run. The generation row likewise belongs to its completed 20k checkpoint, not a new run or a 25k continuation. See both component guides for the exact stage descriptions.
+The reconstruction result follows **adapter 2.5 epochs → fixed-budget 20 epochs → top-p continuation**. The evaluated top-p stage used a 5+1 schedule; the checked-in `reconstruction/configs/top_p_train.yaml` instead runs six consecutive top-p epochs from the fixed checkpoint. Evaluate a new run separately before assigning it the reference metrics. The generation row belongs to its completed 20k checkpoint. See the component guides for each stage.
 
 ## Repository map
 
@@ -115,7 +115,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --standalone --nproc_per_node=8 \
   --config configs/top_p_train.yaml
 ~~~
 
-Stage 3 defaults to `weights/epoch_0020_step_00199440.pt`. If Stage 2 produced a different filename, change `resume` before launching Stage 3. The clean Stage 1 → 2 → 3 recipe has not been established to reproduce the historical reference row above.
+Stage 3 defaults to `weights/epoch_0020_step_00199440.pt`. If Stage 2 produced a different filename, change `resume` before launching Stage 3. The evaluated checkpoint used the adapter → fixed-budget → top-p stage sequence. The checked-in configs describe that sequence, but its direct six-epoch Stage 3 differs from the evaluated 5+1 continuation schedule.
 
 ### Validation
 
@@ -173,4 +173,4 @@ For the reported 20k checkpoint, this protocol selected CFG **2.5**. It does not
 
 ## Reproducibility and credits
 
-The source tree and configuration paths can be inspected without the external assets. Reproducing the numerical rows requires the exact checkpoints, caches, ImageNet split, and FID assets above. The two component guides distinguish measured checkpoint results from proposed clean-run recipes. Third-party code under `generation/third_party/` keeps its original provenance and license files.
+The source tree and configuration paths can be inspected without the external assets. Reproducing the numerical rows requires the exact checkpoints, caches, ImageNet split, and FID assets above. The two component guides distinguish measured checkpoint results from the launch recipes. Third-party code under `generation/third_party/` keeps its original provenance and license files.

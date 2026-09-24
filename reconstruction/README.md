@@ -18,7 +18,7 @@ On ImageNet validation (50,000 images, 256 x 256, EMA weights, Inception-2048 FI
 |---:|---:|---:|---:|
 | 96.124 | 1.198612 | 19.5080 | 0.222875 |
 
-The values above are from the 50,000-image evaluation of the existing six-epoch checkpoint produced by the original 5+1 continuation schedule. The training config in this repository instead applies the second-run hyperparameters directly from the fixed 20-epoch checkpoint for six consecutive epochs, as requested; that direct-run checkpoint must be evaluated separately after training. SSIM was not computed in the reference run, and checkpoints are intentionally kept outside Git because of their size.
+The values above come from the 50,000-image evaluation of the top-p checkpoint initialized through **adapter 2.5 epochs → fixed-budget 20 epochs**. Its six top-p epochs used a 5+1 continuation schedule. The checked-in top-p config runs six consecutive epochs from the fixed checkpoint; evaluate its output separately. SSIM was not computed in the reference run, and checkpoints remain outside Git because of their size.
 
 ## Repository layout
 
@@ -41,9 +41,9 @@ environment.yml
 
 `train_titok_llamagen_decoder_adapt_global_gain_texture.py` is retained because the evaluator imports shared spatial-score and feature-conversion utilities from it. The active allocation mode is `router_e2e_top_p`.
 
-## Clean reconstruction pretraining: 2.5 + 20 epochs
+## Reconstruction initialization: adapter 2.5 + fixed 20 epochs
 
-The repository also provides a clean two-stage recipe that starts directly from the public TiTok-L32 and LlamaGen VQ checkpoints. It does not use the historical `step_00066000.pt` checkpoint and never uses random 2D-grid selection.
+The reported reconstruction training starts from public TiTok-L32 and LlamaGen VQ checkpoints, trains the adapter for 2.5 epochs, then trains the fixed-budget model for 20 epochs. These are the first two stages of the evaluated model, before top-p continuation; the checked-in configs describe their stage structure.
 
 Stage 1 trains only `TiTokToLlamaGenLatentDecoder` for 2.5 ImageNet epochs. The TiTok encoder/quantizer and the complete LlamaGen VQ model, including its decoder, stay frozen. The adapter maps 32 TiTok tokens to a `256 x 16 x 16` feature map that the frozen LlamaGen decoder reconstructs.
 
@@ -81,7 +81,7 @@ public TiTok/LlamaGen weights
   -> fixed96_from_adapter_20epoch
 ```
 
-The clean recipe is a new training protocol. Existing reference numbers in this README were produced by the historical `step_00066000.pt -> fixed-20-epoch -> top-p` lineage and must not be attributed to this new recipe until it has been trained and evaluated.
+This 2.5 + 20-epoch initialization is the source of the evaluated top-p checkpoint. The third stage is described under **Train** below; its provided direct six-epoch config differs from the evaluated 5+1 top-p continuation.
 
 ## Environment
 
