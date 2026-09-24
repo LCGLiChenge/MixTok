@@ -20,6 +20,25 @@ TOP_P_INFERENCE_SHA256 = "e3806ee8011101a1f6bda002d18f2dd953f99b3dbfdf98d1be3126
 INFERENCE_PREFIXES = ("latent_decoder.", "llamagen_vq.")
 
 
+def verified_top_p_artifact(path: Path) -> str:
+    """Return the artifact hash after checking its known full/EMA-export identity."""
+    digest = sha256(path)
+    if digest not in (TOP_P_SHA256, TOP_P_INFERENCE_SHA256):
+        raise RuntimeError("top-p EMA checkpoint identity differs")
+    return digest
+
+
+def verify_source_meta(meta: dict) -> None:
+    """Validate portable checkpoint provenance in newly extracted paired caches."""
+    keys = ("mot_source_sha256", "mot_checkpoint_sha256", "titok_checkpoint_sha256")
+    if not any(key in meta for key in keys):
+        return  # Historical caches predate content-hash metadata.
+    if (meta.get("mot_source_sha256") != TOP_P_SHA256
+            or meta.get("mot_checkpoint_sha256") not in (TOP_P_SHA256, TOP_P_INFERENCE_SHA256)
+            or meta.get("titok_checkpoint_sha256") != TITOK_SHA256):
+        raise RuntimeError("paired source cache checkpoint identity differs")
+
+
 class TopPFrozenAssets:
     def __init__(self, assets_root: Path, top_p_ckpt: Path, device="cpu", chunk=64):
         from omegaconf import OmegaConf
@@ -41,9 +60,9 @@ class TopPFrozenAssets:
         native = TiTok(OmegaConf.load(config_path))
         native_path = assets_root / "weights/tokenizer_titok_l32.bin"
         native_hash = sha256(native_path)
-        top_p_hash = sha256(top_p_ckpt)
-        if native_hash != TITOK_SHA256 or top_p_hash not in (TOP_P_SHA256, TOP_P_INFERENCE_SHA256):
-            raise RuntimeError("frozen TiTok or top-p EMA checkpoint identity differs")
+        top_p_hash = verified_top_p_artifact(top_p_ckpt)
+        if native_hash != TITOK_SHA256:
+            raise RuntimeError("frozen TiTok checkpoint identity differs")
         state = torch.load(native_path, map_location="cpu", mmap=True, weights_only=True)
         state = state.get("model", state)
         native.load_state_dict(state, strict=True)

@@ -26,6 +26,11 @@ from torchvision import datasets, transforms
 from tqdm import tqdm
 
 
+TITOK_SHA256 = "b8f0bf61e9ee1791d8b76fa723bdcb2c85a039a7d027e597f685db492935c31f"
+TOP_P_SOURCE_SHA256 = "61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819"
+TOP_P_INFERENCE_SHA256 = "e3806ee8011101a1f6bda002d18f2dd953f99b3dbfdf98d1be3126f1cb85547a"
+
+
 def center_crop_arr(pil_image, image_size):
     """ADM center crop used by the verified packed-code extraction."""
 
@@ -135,6 +140,8 @@ def broadcast_rank0_error(error, rank, world_size):
 
 
 def load_titok(args, device):
+    if sha256_file(args.titok_ckpt) != TITOK_SHA256:
+        raise RuntimeError("official TiTok tokenizer checkpoint identity differs")
     sys.path.insert(0, str(args.titok_root))
     from modeling.titok import TiTok
 
@@ -150,6 +157,9 @@ def load_titok(args, device):
 
 
 def load_llamagen(args, device):
+    artifact_sha256 = sha256_file(args.mot_ckpt)
+    if artifact_sha256 not in (TOP_P_SOURCE_SHA256, TOP_P_INFERENCE_SHA256):
+        raise RuntimeError("top-p EMA checkpoint identity differs")
     sys.path.insert(0, str(args.llamagen_root))
     from vq_model import VQ_models
 
@@ -200,6 +210,7 @@ def load_llamagen(args, device):
     checkpoint_args = vars(checkpoint_args) if hasattr(checkpoint_args, "__dict__") else checkpoint_args
     info = {
         "step": int(mot_ckpt.get("step", -1)),
+        "checkpoint_sha256": artifact_sha256,
         "loaded_keys": len(adapted),
         "unrestored_buffers": unrestored_buffers,
         "mask_ratio": checkpoint_args.get("mask_ratio") if isinstance(checkpoint_args, dict) else None,
@@ -288,7 +299,10 @@ def write_metadata(args, output_root, dataset, mot_info, world_size, completed, 
         },
         "titok_config": str(Path(args.titok_config).resolve()),
         "titok_ckpt": str(Path(args.titok_ckpt).resolve()),
+        "titok_checkpoint_sha256": TITOK_SHA256,
         "mot_ckpt": str(Path(args.mot_ckpt).resolve()),
+        "mot_checkpoint_sha256": mot_info["checkpoint_sha256"],
+        "mot_source_sha256": TOP_P_SOURCE_SHA256,
         "mot_state_key": args.mot_state_key,
         "mot_step": mot_info["step"],
         "mot_mask_ratio": mot_info["mask_ratio"],

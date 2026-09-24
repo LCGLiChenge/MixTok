@@ -18,7 +18,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from bert2d.paths import ASSETS, atomic_json, output_path, sha256
-from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets, TOP_P_SHA256
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets, TOP_P_SHA256, verified_top_p_artifact
 from experiments.continuous_halton_embedding_20260923.adapter_data import (
     load_data_contract, source_split, flat_rows, training_order, make_features, save_checkpoint)
 from experiments.continuous_halton_embedding_20260923.embedding_adapter import (
@@ -59,8 +59,8 @@ def run(args):
     torch.set_num_threads(4)
     torch.cuda.set_device(local)
     device = torch.device('cuda', local)
-    if 'H20' not in torch.cuda.get_device_name(device):
-        raise RuntimeError('H20-only experiment')
+    if not args.allow_non_h20 and 'H20' not in torch.cuda.get_device_name(device):
+        raise RuntimeError('H20 required unless --allow-non-h20 is set')
     free, _ = torch.cuda.mem_get_info(device)
     if free < args.min_free_gib * 1024**3:
         raise RuntimeError('insufficient free GPU memory')
@@ -79,8 +79,7 @@ def run(args):
     start = time.monotonic()
     status_path = out / f'status_rank{rank}.json'
     atomic_json(status_path, dict(status='loading', pid=os.getpid(), rank=rank))
-    if sha256(args.top_p_ckpt) != TOP_P_SHA256:
-        raise RuntimeError('top-p tokenizer mismatch')
+    top_p_artifact_sha256 = verified_top_p_artifact(args.top_p_ckpt)
     z1, teacher_ids, audit = load_data_contract(args.source_root, args.teacher_root, TOP_P_SHA256)
     train_sources, eval_sources = source_split(args.split_seed, args.eval_fraction)
     chosen = np.sort(np.random.default_rng(args.eval_seed).choice(eval_sources, args.eval_sources, replace=False))
@@ -96,7 +95,8 @@ def run(args):
     optimizer = torch.optim.AdamW(core.parameters(), lr=args.lr, betas=(.9, .999), weight_decay=.01)
     model = DDP(core, device_ids=[local], broadcast_buffers=False) if world > 1 else core
     config = dict(format=FORMAT, steps=args.steps, stop_after=args.stop_after,
-        top_p_checkpoint_sha256=TOP_P_SHA256, official_halton_sha256=OFFICIAL_SHA256,
+        top_p_checkpoint_sha256=TOP_P_SHA256, top_p_artifact_sha256=top_p_artifact_sha256,
+        gpu_name=torch.cuda.get_device_name(device), official_halton_sha256=OFFICIAL_SHA256,
         micro_batch=args.batch, global_batch=args.batch * world, world=world, seed=args.seed,
         lr=args.lr, warmup=args.warmup, weight_decay=.01, model_config=core.config,
         parameters=sum(p.numel() for p in core.parameters()),
@@ -211,6 +211,8 @@ if __name__ == '__main__':
     p.add_argument('--wandb-mode',choices=('offline','online','disabled'),default='offline')
     p.add_argument('--wandb-project', default='mixtok-continuous-halton')
     p.add_argument('--smoke', action='store_true')
+    p.add_argument('--allow-non-h20', action='store_true',
+                   help='Run on another CUDA GPU; exact paper numerics may differ')
     args = p.parse_args()
     try:
         run(args)

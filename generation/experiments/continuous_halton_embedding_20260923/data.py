@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import Dataset
 from bert2d.paths import sha256
 from experiments.continuous_halton_embedding_20260923.bucket_sampler import RankDynamicBucketSampler
-from experiments.continuous_halton_embedding_20260923.assets_top_p import TOP_P_SHA256
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TOP_P_SHA256, verify_source_meta
 
 FORMAT = 'top_p_continuous_route_cache_v1'
 NUM_SOURCES, NUM_AUG = 1281167,2
@@ -18,6 +18,7 @@ class ContinuousRouteDataset(Dataset):
         config = json.loads((cache_root/'config.json').read_text())
         summary = json.loads((cache_root/'summary.json').read_text())
         meta = json.loads((gt_root/'meta.json').read_text())
+        verify_source_meta(meta)
         if (config['format'] != FORMAT or summary['status'] != 'complete'
             or config['top_p_checkpoint_sha256'] != TOP_P_SHA256
             or summary['config_sha256'] != sha256(cache_root/'config.json')

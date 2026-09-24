@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from bert2d.paths import atomic_json, sha256
-from experiments.continuous_halton_embedding_20260923.assets_top_p import TOP_P_SHA256
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TOP_P_SHA256, verify_source_meta
 
 PROXY_FORMAT = "top_p_1d_base_rgb_reencoded_proxy_v1"
 NUM_SOURCES = 1_281_167
@@ -54,6 +54,7 @@ def training_order(rows: np.ndarray, count: int, seed: int,
 def load_data_contract(codes_root: Path, proxy_root: Path, top_p_sha256: str):
     meta_path = codes_root / "meta.json"
     meta = json.loads(meta_path.read_text())
+    verify_source_meta(meta)
     require(meta.get("completed") is True, "packed cache is incomplete")
     require(int(meta.get("num_samples", -1)) == NUM_SOURCES, "wrong source count")
     require(int(meta.get("num_aug", -1)) == NUM_AUG, "two ADM views required")

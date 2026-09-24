@@ -25,11 +25,10 @@ os.environ.setdefault("USE_TF", "0")
 
 from bert2d.paths import ASSETS, atomic_json, sha256
 from h20.assets import specifications
-from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets, TOP_P_SHA256, verified_top_p_artifact, verify_source_meta
 
 
 FORMAT = "top_p_1d_base_rgb_reencoded_proxy_v1"
-TOP_P_SHA256 = "61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819"
 
 
 def require(condition: bool, message: str) -> None:
@@ -96,12 +95,15 @@ def encode_batch(models: nn.ModuleDict, ids: torch.Tensor) -> tuple[torch.Tensor
 def source_contract(codes_root: Path, top_p_ckpt: Path):
     meta_path = codes_root / "meta.json"
     meta = json.loads(meta_path.read_text())
+    verify_source_meta(meta)
     require(meta.get("completed") is True and int(meta.get("format_version", -1)) == 1, "bad cache meta")
     require(int(meta.get("num_samples", -1)) == 1_281_167, "full ImageNet train required")
     require(int(meta.get("num_aug", -1)) == 2 and meta.get("augmentation") == "adm", "two ADM views required")
     require(int(meta.get("mot_step", -1)) == 247482 and meta.get("mot_state_key") == "model_ema", "top-p EMA cache required")
-    require(Path(meta.get("mot_ckpt", "")).resolve() == top_p_ckpt.resolve(),
-            "source TiTok IDs came from a different extraction")
+    if "mot_source_sha256" not in meta:
+        require(Path(meta.get("mot_ckpt", "")).resolve() == top_p_ckpt.resolve(),
+                "legacy source cache path differs; re-extract to record checkpoint hash")
+    verified_top_p_artifact(top_p_ckpt)
     z1 = np.load(codes_root / "titok_codes.npy", mmap_mode="r", allow_pickle=False)
     written = np.load(codes_root / "written.npy", mmap_mode="r", allow_pickle=False)
     require(z1.shape == (1_281_167, 2, 32) and z1.dtype == np.uint16, "bad TiTok cache layout")
@@ -127,6 +129,7 @@ def expected_config(args, z1, meta_sha: str, z1_sha: str, total: int) -> dict:
         "source_meta_sha256": meta_sha,
         "source_titok_sha256": z1_sha,
         "top_p_checkpoint_sha256": TOP_P_SHA256,
+        "top_p_artifact_sha256": verified_top_p_artifact(args.top_p_ckpt),
         "top_p_checkpoint": str(args.top_p_ckpt.resolve()),
         "total_available": int(z1.shape[0] * z1.shape[1]),
         "world_size": args.world_size,
@@ -138,7 +141,7 @@ def prepare(args) -> None:
     output = args.output.resolve()
     require(not output.is_relative_to(ROOT.resolve()), "large cache must be outside repository")
     output.mkdir(parents=True, exist_ok=True)
-    require(sha256(args.top_p_ckpt) == TOP_P_SHA256, "top-p EMA checkpoint changed")
+    verified_top_p_artifact(args.top_p_ckpt)
     z1, _, meta_sha, z1_sha = source_contract(args.source_root, args.top_p_ckpt)
     available = int(z1.shape[0] * z1.shape[1])
     total = available if args.limit == 0 else min(args.limit, available)

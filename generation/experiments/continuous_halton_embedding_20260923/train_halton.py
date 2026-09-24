@@ -28,7 +28,7 @@ from experiments.continuous_halton_embedding_20260923.continuous_halton import (
     ContinuousHalton, ContinuousObjective,
     sample_continuous_completion)
 from experiments.continuous_halton_embedding_20260923.embedding_adapter import load_adapter
-from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets, TOP_P_SHA256, verified_top_p_artifact
 from experiments.continuous_halton_embedding_20260923.adapter_data import make_features
 from bert2d.paths import ASSETS
 from experiments.continuous_halton_embedding_20260923.async_eval import AsyncTopPEval
@@ -94,7 +94,7 @@ def save_checkpoint(out: Path, core: ContinuousHalton, optimizer, step: int, con
 def run(args):
     rank, world, local = (int(os.environ[k]) for k in ("RANK", "WORLD_SIZE", "LOCAL_RANK"))
     if world not in (4, 8):
-        raise RuntimeError("this run requires four or eight H20 GPUs")
+        raise RuntimeError("this run requires four or eight CUDA GPUs")
     if args.epochs < 1 or (args.updates is not None and not args.smoke):
         raise ValueError('updates override is smoke-only; formal horizon is fixed by epochs')
     if args.stop_after is not None and (args.stop_after < 1 or args.smoke):
@@ -105,8 +105,8 @@ def run(args):
     torch.set_num_threads(4)
     torch.cuda.set_device(local)
     device = torch.device("cuda", local)
-    if "H20" not in torch.cuda.get_device_name(device):
-        raise RuntimeError("expected H20 GPU")
+    if not args.allow_non_h20 and "H20" not in torch.cuda.get_device_name(device):
+        raise RuntimeError("H20 required unless --allow-non-h20 is set")
     # Eight-H20 smoke measured 9.84 GiB reserved at micro32. Evaluation has
     # its own admission check; do not require its headroom on every rank.
     if torch.cuda.mem_get_info(device)[0] < args.min_free_gib * 1024**3:
@@ -139,7 +139,8 @@ def run(args):
         pretrained_sha = sha256(args.pretrained)
         if pretrained_sha != "7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f":
             raise RuntimeError("Halton pretrained checkpoint SHA256 mismatch")
-        if cache_config.get("top_p_checkpoint_sha256") != sha256(args.top_p_ckpt):
+        verified_top_p_artifact(args.top_p_ckpt)
+        if cache_config.get("top_p_checkpoint_sha256") != TOP_P_SHA256:
             raise RuntimeError("cache and top-p tokenizer differ")
         if not args.adapter_ckpt.is_file():
             raise RuntimeError("continuous adapter checkpoint missing")
@@ -186,6 +187,8 @@ def run(args):
                   eval_scorer_checkpoint=str(args.scorer_ckpt.resolve()),
                   source_root=str(args.source_root.resolve()),
                   top_p_checkpoint=str(args.top_p_ckpt.resolve()),
+                  top_p_artifact_sha256=verified_top_p_artifact(args.top_p_ckpt),
+                  gpu_name=torch.cuda.get_device_name(device),
                   adapter_sha256=sha256(args.adapter_ckpt),
                   adapter_step=args.adapter_step if args.smoke else 20000,
                   condition_precision='f1d FP32 noTF32; frozen adapter BF16; context before position embedding',
@@ -395,6 +398,8 @@ if __name__ == "__main__":
     p.add_argument('--lr-decay-until',type=int,default=20000)
     p.add_argument('--min-lr',type=float,default=2e-6)
     p.add_argument('--smoke',action='store_true')
+    p.add_argument('--allow-non-h20',action='store_true',
+                   help='Run on another CUDA GPU; exact paper numerics may differ')
     p.add_argument("--log-every", type=int, default=20)
     p.add_argument('--eval-gpu',default='auto')
     p.add_argument('--eval-cfg-w',type=float,default=2.75)

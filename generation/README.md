@@ -6,9 +6,9 @@ This directory contains the **continuous embedding** generation path. The offici
 
 ## Requirements
 
-- Python 3.10, eight H20 GPUs, PyTorch 2.10.0, torchvision 0.25.0, and the packages in [`requirements-h20.txt`](requirements-h20.txt) and [`constraints-h20.txt`](constraints-h20.txt). Training logs to W&B offline by default; online logging is optional.
+- Python 3.10, eight H20 GPUs for the paper training configuration, PyTorch 2.10.0, torchvision 0.25.0, and the packages in [`requirements-h20.txt`](requirements-h20.txt) and [`constraints-h20.txt`](constraints-h20.txt). Training logs to W&B offline by default; online logging is optional.
 - Official Halton-MaskGIT source and `ImageNet_256_base.pth` from [`llvictorll/Halton-MaskGIT`](https://huggingface.co/llvictorll/Halton-MaskGIT). The required checkpoint SHA-256 is `7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f`.
-- Official TiTok-L32 weights and the evaluated top-p reconstruction checkpoint at step 247482, loaded from `model_ema`. The top-p checkpoint SHA-256 is `61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819`. Training uses the full checkpoint; [`export_top_p_inference.py`](experiments/continuous_halton_embedding_20260923/export_top_p_inference.py) can make a smaller inference-only copy.
+- Official TiTok-L32 weights and the evaluated top-p reconstruction checkpoint at step 247482, loaded from `model_ema`. The top-p checkpoint SHA-256 is `61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819`. The full checkpoint or its SHA-verified EMA inference export can supply the frozen tokenizer modules used by generation. [`export_top_p_inference.py`](experiments/continuous_halton_embedding_20260923/export_top_p_inference.py) creates the smaller export.
 - The accepted 1D-feature top-p scorer checkpoint and the paired ImageNet top-p GT code cache, including both cached augmentations. The cache contains `titok_codes.npy`, `llamagen_codes.npy`, `labels.npy`, and `meta.json`.
 - A completed teacher-token cache for adapter targets and a completed route-only cache for sparse training. The teacher cache's `proxy_codes.npy` filename is part of its existing data format; the generator uses continuous embeddings. The route cache contains `config.json`, `summary.json`, `route_indices.npy`, and `route_k.npy`.
 - ADM FID reference assets for evaluation. [`configs/h20_assets.json`](configs/h20_assets.json) records local asset paths, sizes, and hashes.
@@ -42,9 +42,9 @@ python experiments/continuous_halton_embedding_20260923/sweep_cfg.py \
   --output "$MOTAR_RESULTS/continuous_cfg_sweep"
 ```
 
-The first stage trains the embedding adapter against the official Halton embedding table using the teacher-token cache. The second stage freezes that adapter and trains sparse Halton MaskGIT using the route-only cache. `sweep_cfg.py` selects CFG on a fixed 5k cohort, then evaluates the selected setting on 50k samples. Both training stages write a rolling `latest.pt`.
+The first stage trains the embedding adapter against the official Halton embedding table using the teacher-token cache. The second stage freezes that adapter and trains sparse Halton MaskGIT using the route-only cache. `sweep_cfg.py` selects CFG on a fixed 5k cohort, then evaluates the selected setting on 50k samples. Both training stages write a rolling `latest.pt`. To run a diagnostic training pass on a different CUDA GPU, pass `--allow-non-h20` and lower `--min-free-gib` to the available memory. This changes the hardware used for the run and may change sampled outputs.
 
-When evaluating a checkpoint trained on another machine, set `HALTON_UPSTREAM_ROOT` to the local Halton-MaskGIT source checkout. The evaluator checks that its six upstream source files match the hashes saved in the checkpoint before loading the model. `parallel_eval_compact.py` also accepts an inference-only top-p EMA export; the training scripts require the full top-p checkpoint.
+When evaluating a checkpoint trained on another machine, set `HALTON_UPSTREAM_ROOT` to the local Halton-MaskGIT source checkout. The evaluator checks that its six upstream source files match the hashes saved in the checkpoint before loading the model. `parallel_eval_compact.py`, the cache builders, and the training scripts accept the SHA-verified top-p EMA export. The paired-code extractor records both the artifact hash and its source checkpoint hash, so a copied cache can be verified without relying on its original absolute paths.
 
 ### Evaluate an existing checkpoint
 
@@ -77,9 +77,46 @@ python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py
 
 ### Build the caches
 
-[`cache_teacher_targets.py`](experiments/continuous_halton_embedding_20260923/cache_teacher_targets.py) builds the teacher-token cache by decoding each 1D base image and re-encoding it with the frozen top-p VQ model. [`cache_routes.py`](experiments/continuous_halton_embedding_20260923/cache_routes.py) applies the accepted scorer to the frozen 1D features and records only the selected top-p positions. Neither cache builder trains a generator.
+Start with ImageNet train in the standard 1,000-class `ImageFolder` layout. Extract paired codes from the official TiTok tokenizer and the verified top-p EMA VQ weights. Match `--nproc_per_node` to the GPUs exposed by `CUDA_VISIBLE_DEVICES`; the paper run used eight GPUs.
 
-Both cache builders use `prepare`, `extract`, and `finalize` modes. For example, after setting the variables above and supplying the paired GT cache, prepare the route cache and distribute extraction across eight GPUs:
+```bash
+export IMAGENET_TRAIN=../assets/ImageNet/train
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --standalone --nproc_per_node=8 \
+  scripts/extract_codes_top_p.py \
+  --data-path "$IMAGENET_TRAIN" --output-root "$TOP_P_GT2D_CACHE" \
+  --mot-ckpt "$TOP_P_CKPT" --mot-state-key model_ema \
+  --titok-root third_party/TiTok \
+  --titok-config third_party/TiTok/configs/infer/TiTok/titok_l32.yaml \
+  --titok-ckpt "$MOTAR_ASSETS/weights/tokenizer_titok_l32.bin" \
+  --llamagen-root third_party/LlamaGen \
+  --aug-mode adm --mixed-precision none --batch-size 32 --num-workers 4
+```
+
+[`cache_teacher_targets.py`](experiments/continuous_halton_embedding_20260923/cache_teacher_targets.py) builds the teacher-token cache by decoding each 1D base image and re-encoding it with the frozen top-p VQ model. [`cache_routes.py`](experiments/continuous_halton_embedding_20260923/cache_routes.py) applies the accepted scorer to the frozen 1D features and records only the selected top-p positions. Neither cache builder trains a generator. Both use `prepare`, `extract`, and `finalize` modes.
+
+Build the teacher cache before training the adapter:
+
+```bash
+python experiments/continuous_halton_embedding_20260923/cache_teacher_targets.py prepare \
+  --assets-root "$MOTAR_ASSETS" --source-root "$TOP_P_GT2D_CACHE" \
+  --top-p-ckpt "$TOP_P_CKPT" --output "$TOP_P_TEACHER_PROXY_CACHE" --world-size 8
+
+pids=()
+for rank in 0 1 2 3 4 5 6 7; do
+  CUDA_VISIBLE_DEVICES="$rank" python experiments/continuous_halton_embedding_20260923/cache_teacher_targets.py extract \
+    --assets-root "$MOTAR_ASSETS" --source-root "$TOP_P_GT2D_CACHE" \
+    --top-p-ckpt "$TOP_P_CKPT" --output "$TOP_P_TEACHER_PROXY_CACHE" \
+    --world-size 8 --rank "$rank" &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do wait "$pid" || exit 1; done
+
+python experiments/continuous_halton_embedding_20260923/cache_teacher_targets.py finalize \
+  --assets-root "$MOTAR_ASSETS" --source-root "$TOP_P_GT2D_CACHE" \
+  --top-p-ckpt "$TOP_P_CKPT" --output "$TOP_P_TEACHER_PROXY_CACHE" --world-size 8
+```
+
+After the paired code cache is complete, build the selected-route cache:
 
 ```bash
 python experiments/continuous_halton_embedding_20260923/cache_routes.py prepare \
@@ -103,7 +140,7 @@ python experiments/continuous_halton_embedding_20260923/cache_routes.py finalize
   --output "$TOP_P_ROUTE_CACHE" --world-size 8
 ```
 
-The teacher cache builder takes the same `--source-root`, `--top-p-ckpt`, and `--output` paths, plus `--assets-root`; use its `--help` for rank and batch options. Cache identities and row alignment are validated again when training starts.
+Cache identities and row alignment are validated again when training starts. If extraction stops partway through, rerun the paired-code extractor with `--resume`; the teacher and route extractors resume from their written-row bitmaps.
 
 ## Source layout
 

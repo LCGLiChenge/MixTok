@@ -12,7 +12,7 @@ import torch
 
 from bert2d.paths import atomic_json, sha256
 from experiments.continuous_halton_embedding_20260923.adapter_data import make_features
-from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets, TOP_P_SHA256
+from experiments.continuous_halton_embedding_20260923.assets_top_p import TopPFrozenAssets, TOP_P_SHA256, verified_top_p_artifact, verify_source_meta
 from experiments.continuous_halton_embedding_20260923.data import FORMAT, NUM_SOURCES, NUM_AUG
 from experiments.continuous_halton_embedding_20260923.top_p_scorer import OneDTopPGridScorer, top_p_mask
 
@@ -26,6 +26,7 @@ def require(ok, message):
 
 def source_codes(root):
     meta = json.loads((root / 'meta.json').read_text())
+    verify_source_meta(meta)
     require(meta.get('completed') is True and int(meta.get('num_samples', -1)) == NUM_SOURCES,
             'paired top-p source cache is incomplete')
     require(int(meta.get('num_aug', -1)) == NUM_AUG and int(meta.get('mot_step', -1)) == 247482
@@ -39,7 +40,7 @@ def source_codes(root):
 def prepare(args):
     codes = source_codes(args.source_root)
     require(args.p == .75 and args.temperature == 2., 'use accepted p=.75 and T=2')
-    require(sha256(args.top_p_ckpt) == TOP_P_SHA256, 'top-p tokenizer identity differs')
+    top_p_artifact_sha256 = verified_top_p_artifact(args.top_p_ckpt)
     scorer_state = torch.load(args.scorer_ckpt, map_location='cpu', weights_only=True)
     require(scorer_state.get('step') == 20000 and 'model' in scorer_state and 'args' in scorer_state,
             'accepted 20k scorer checkpoint required')
@@ -52,6 +53,7 @@ def prepare(args):
                   source_titok_sha256=sha256(args.source_root / 'titok_codes.npy'),
                   source_shape=list(codes.shape),
                   top_p_checkpoint_sha256=TOP_P_SHA256,
+                  top_p_artifact_sha256=top_p_artifact_sha256,
                   scorer_sha256=sha256(args.scorer_ckpt))
     args.output.mkdir(parents=True, exist_ok=False)
     for name, shape in (('route_indices.npy', (NUM_ROWS, 256)), ('route_k.npy', (NUM_ROWS,))):
@@ -68,7 +70,8 @@ def prepare(args):
 
 
 def load_models(args, config, device):
-    require(sha256(args.top_p_ckpt) == config['top_p_checkpoint_sha256']
+    require(verified_top_p_artifact(args.top_p_ckpt) ==
+            config.get('top_p_artifact_sha256', TOP_P_SHA256)
             and sha256(args.scorer_ckpt) == config['scorer_sha256'],
             'frozen checkpoint identity changed after prepare')
     frozen = TopPFrozenAssets(args.assets_root, args.top_p_ckpt, device, chunk=args.batch)
