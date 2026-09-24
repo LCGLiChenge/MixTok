@@ -395,6 +395,8 @@ if __name__ == "__main__":
     p.add_argument('--lr',type=float,default=2e-5)
     p.add_argument('--warmup',type=int,default=2500)
     p.add_argument('--lr-schedule',choices=('official','budget-cosine'),default='budget-cosine')
+    p.add_argument('--mask-objective',choices=('mixed-prefix',),default='mixed-prefix',
+                   help='Train on random and Halton-prefix masks at selected positions')
     p.add_argument('--lr-hold-until',type=int,default=4000)
     p.add_argument('--lr-decay-until',type=int,default=20000)
     p.add_argument('--min-lr',type=float,default=2e-6)
