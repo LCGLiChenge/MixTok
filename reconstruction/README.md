@@ -8,17 +8,9 @@ The fixed-budget warm-start is included below. Earlier exploratory search and AR
 
 The fixed-budget pretraining pipeline is included in `configs/fixed96_from_adapter_20epoch.yaml`. It fixes the refinement budget to 96 of 256 grids, trains the Grid Scorer alone for 0.5 epoch, performs one additional epoch of joint reconstruction training without GAN loss, and enables GAN training from epoch 1.5 through epoch 20.
 
-## Reference evaluation
+## Top-p inference settings
 
-The existing six-epoch checkpoint used top-p temperature `2.0` and `p=0.91`. Hard inference is calibrated separately with temperature `1.0` and `p=0.994897` to obtain an average budget of approximately 96 refinement tokens.
-
-On ImageNet validation (50,000 images, 256 x 256, EMA weights, Inception-2048 FID without input normalization), the verified checkpoint gives:
-
-| Average 2D tokens | rFID | PSNR | LPIPS |
-|---:|---:|---:|---:|
-| 96.124 | 1.198612 | 19.5080 | 0.222875 |
-
-The values above come from the 50,000-image evaluation of the top-p checkpoint initialized through **adapter 2.5 epochs → fixed-budget 20 epochs**. Its six top-p epochs used a 5+1 continuation schedule. The checked-in top-p config runs six consecutive epochs from the fixed checkpoint; evaluate its output separately. SSIM was not computed in the reference run, and checkpoints remain outside Git because of their size.
+The dynamic top-p training config uses temperature `2.0` and `p=0.91`. The evaluation configs use EMA weights and hard top-p inference with temperature `1.0` and `p=0.994897`; the number of selected grids varies by image. Evaluation commands are below. Checkpoint weights and evaluation outputs are kept outside Git.
 
 ## Repository layout
 
@@ -81,7 +73,7 @@ public TiTok/LlamaGen weights
   -> fixed96_from_adapter_20epoch
 ```
 
-This 2.5 + 20-epoch initialization is the source of the evaluated top-p checkpoint. The third stage is described under **Train** below; its provided direct six-epoch config differs from the evaluated 5+1 top-p continuation.
+This 2.5 + 20-epoch initialization is the source of the evaluated top-p checkpoint. The third stage is described under **Train** below; its provided direct six-epoch config differs from the earlier 5+1 top-p continuation.
 
 ## Environment
 

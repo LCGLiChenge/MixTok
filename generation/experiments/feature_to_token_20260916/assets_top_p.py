@@ -1,7 +1,7 @@
-"""Frozen top-p assets for the faithful 1.907 mapper and Halton port.
+"""Frozen top-p assets for sparse 2D generation.
 
 Only the official TiTok tokenizer and the specified top-p EMA tokenizer
-components are loaded.  No k-selector task checkpoint is read here.
+components are loaded. No k-selector task checkpoint is read here.
 """
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from h20_joint.mot_latent import TiTokToLlamaGenLatentDecoder
 
 TITOK_SHA256 = "b8f0bf61e9ee1791d8b76fa723bdcb2c85a039a7d027e597f685db492935c31f"
 TOP_P_SHA256 = "61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819"
+TOP_P_INFERENCE_SHA256 = "e3806ee8011101a1f6bda002d18f2dd953f99b3dbfdf98d1be3126f1cb85547a"
+INFERENCE_PREFIXES = ("latent_decoder.", "llamagen_vq.")
 
 
 class TopPFrozenAssets:
@@ -40,7 +42,7 @@ class TopPFrozenAssets:
         native_path = assets_root / "weights/tokenizer_titok_l32.bin"
         native_hash = sha256(native_path)
         top_p_hash = sha256(top_p_ckpt)
-        if native_hash != TITOK_SHA256 or top_p_hash != TOP_P_SHA256:
+        if native_hash != TITOK_SHA256 or top_p_hash not in (TOP_P_SHA256, TOP_P_INFERENCE_SHA256):
             raise RuntimeError("frozen TiTok or top-p EMA checkpoint identity differs")
         state = torch.load(native_path, map_location="cpu", mmap=True, weights_only=True)
         state = state.get("model", state)
@@ -56,6 +58,12 @@ class TopPFrozenAssets:
         if "model_ema" not in checkpoint:
             raise ValueError("top-p checkpoint has no model_ema")
         state = checkpoint["model_ema"]
+        if top_p_hash == TOP_P_INFERENCE_SHA256:
+            if (checkpoint.get("format") != "top_p_ema_inference_v1"
+                    or checkpoint.get("source_sha256") != TOP_P_SHA256
+                    or len(state) != 661
+                    or any(not key.startswith(INFERENCE_PREFIXES) for key in state)):
+                raise RuntimeError("invalid inference-only top-p EMA export")
         counts = {}
         for prefix, module in (("latent_decoder.", latent_decoder),
                                ("llamagen_vq.", vq)):
@@ -69,7 +77,7 @@ class TopPFrozenAssets:
         del checkpoint, state, subset
 
         # Both training scripts consume packed 1D IDs; TiTok encoding is not
-        # part of their online forward path.  Keep its frozen quantizer only.
+        # part of their online forward path. Keep its frozen quantizer only.
         native.encoder = nn.Identity()
         native.latent_tokens = None
         self.native = native.to(self.device).eval().requires_grad_(False)
@@ -81,7 +89,8 @@ class TopPFrozenAssets:
             "top_p_checkpoint": str(top_p_ckpt.resolve()),
             "top_p_state_key": "model_ema",
             "top_p_step": step,
-            "top_p_checkpoint_sha256": top_p_hash,
+            "top_p_checkpoint_sha256": TOP_P_SHA256,
+            "top_p_artifact_sha256": top_p_hash,
             "loaded_tensors": counts,
             "native_titok_checkpoint": str(native_path.resolve()),
             "native_titok_sha256": native_hash,

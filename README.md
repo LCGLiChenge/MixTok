@@ -16,33 +16,22 @@ MixTok represents an image with **32 global 1D tokens** and a variable number of
 2. **Adaptive refinement.** A scorer ranks the 256 grid locations. After temperature-scaled softmax, top-p selects the smallest ranked prefix whose cumulative probability reaches `p`. The selected count `K(x)` changes with each image.
 3. **Mixed decoding.** Selected locations receive 2D codebook features; unselected locations keep their continuous 1D-derived features. A shared decoder renders the mixed grid.
 
-For **generation**, a TiTok MaskGIT first samples the 32 1D IDs. A scorer using the resulting 1D features selects 2D locations, and a sparse Halton MaskGIT generates IDs only there. A mapper supplies proxy IDs as generation context; its unselected proxies are not substituted into the final decoder grid.
+For **generation**, a TiTok MaskGIT first samples the 32 1D IDs. A scorer using the resulting 1D features selects 2D locations, and a sparse Halton MaskGIT generates IDs only there. This repository includes proxy-ID conditioning and a newer continuous-context variant that maps 1D features directly to Halton input embeddings. Unselected decoder locations keep their continuous 1D-derived features.
 
 <p align="center">
   <img src="docs/maskgit.png" width="88%" alt="MixTok generation pipeline with a 1D MaskGIT, top-p grid selection, proxy mapper, sparse 2D MaskGIT, and shared decoder." />
 </p>
 
-*Class-conditional generation: 1D tokens establish the base grid, and 2D MaskGIT generates tokens at the selected locations.*
+*Class-conditional generation. The diagram illustrates the proxy-ID branch; the continuous-context variant replaces its proxy mapper with an embedding adapter.*
 
-The fixed **96/256** allocation belongs to reconstruction warm-start training. Final reconstruction and generation use image-dependent top-p selection. Approximately 96 2D tokens is an **average budget**, not a per-image limit.
-
-## Results at a glance
-
-These numbers describe evaluated checkpoints under the stated protocols. They are not expected results of simply running every current config from a fresh checkout.
-
-| Pipeline | Evaluated protocol | Result | Checkpoint relationship |
-| --- | --- | --- | --- |
-| Reconstruction | ImageNet validation, 50,000 images at 256 × 256; EMA; hard top-p inference with `p=0.994897`, `T=1` | rFID **1.198612**, PSNR **19.5080**, LPIPS **0.222875**; mean **96.124** selected 2D tokens | Top-p checkpoint at step **247482**; initialized by adapter **2.5 epochs** and fixed-budget **20 epochs**, then trained with a 5+1 top-p continuation |
-| Generation | Class-conditional ImageNet-256, 50,000 samples; 8 TiTok + 8 Halton steps; 2D CFG **2.5** selected by a separate fixed-5k sweep | gFID **1.9209706**; mean **98.95888** generated 2D IDs, in addition to 32 1D IDs | Completed **20,000-update** Halton checkpoint |
-
-The reconstruction result follows **adapter 2.5 epochs → fixed-budget 20 epochs → top-p continuation**. The evaluated top-p stage used a 5+1 schedule; the checked-in `reconstruction/configs/top_p_train.yaml` instead runs six consecutive top-p epochs from the fixed checkpoint. Evaluate a new run separately before assigning it the reference metrics. The generation row belongs to its completed 20k checkpoint. See the component guides for each stage.
+The fixed **96/256** allocation belongs to reconstruction warm-start training. Final reconstruction and generation use image-dependent top-p selection, so the number of selected 2D locations changes with each image.
 
 ## Repository map
 
 | Directory | Main purpose | Start here |
 | --- | --- | --- |
 | [`reconstruction/`](reconstruction/) | Adapter, fixed-budget warm-start, end-to-end top-p reconstruction, and ImageNet validation | [Reconstruction guide](reconstruction/README.md) |
-| [`generation/`](generation/) | Top-p condition preparation, sparse 2D MaskGIT training, CFG sweep, and generation evaluation | [Generation guide](generation/README.md) |
+| [`generation/`](generation/) | Proxy-ID and continuous-context sparse 2D MaskGIT, CFG sweep, and generation evaluation | [Generation guide](generation/README.md) |
 
 Each component is run from **its own directory**. Configuration paths are relative to that working directory; for example, `../ImageNet/train` in a reconstruction YAML means `MixTok/ImageNet/train`. The two components have different software environments.
 
@@ -76,7 +65,7 @@ The repository does **not** redistribute ImageNet, trained checkpoints, generate
 | Fixed 20-epoch reconstruction checkpoint | Top-p reconstruction initialization | `reconstruction/weights/epoch_0020_step_00199440.pt` by default; SHA-256 `86c8f9da5e61261ab93066c73d7719203e8c00b69f05b805c5937e6b7319b446` |
 | Evaluated top-p checkpoint at step 247482 | Reconstruction validation and generation conditioning | Set the evaluation `ckpt` path and generation `TOP_P_CKPT` to the same file; SHA-256 `61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819` |
 | Official Halton initialization | Generation training | `assets/generation/ImageNet_256_base.pth` in the example below; SHA-256 `7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f` |
-| Top-p scorer, codebook mapper, GT code cache, condition cache, ADM reference | Generation training and 50k evaluation | Supply under `assets/generation/` and set the paths in the generation command |
+| Top-p scorer, proxy-ID mapper or continuous adapter, GT and route caches, ADM reference | Generation training and evaluation | Supply under `assets/generation/` and set the paths in the generation command |
 
 The generation code checks the TiTok and top-p checkpoint hashes in [`assets_top_p.py`](generation/experiments/feature_to_token_20260916/assets_top_p.py). Do not replace these with earlier fixed-budget or k-selector weights.
 
@@ -141,7 +130,7 @@ The 50k config writes `results/top_p_eval_50000.json`. Its `no_ssim: true` setti
 
 ## Generation
 
-Generation needs the **same evaluated top-p reconstruction checkpoint** plus its own scorer, mapper, and completed caches. It is not runnable end to end from source files alone. The relevant preparation and model code is in `generation/experiments/feature_to_token_20260916/`; the [generation guide](generation/README.md) maps the entry points.
+Generation needs the **same evaluated top-p reconstruction checkpoint** plus its own scorer and completed caches. The proxy-ID branch uses a codebook mapper; the continuous-context branch uses a fresh embedding adapter. Neither branch is runnable end to end from source files alone. See the [generation guide](generation/README.md) for entry points and asset contracts.
 
 Prepare a separate Python 3.10/CUDA environment with PyTorch **2.10.0**, torchvision **0.25.0**, and the packages pinned in [`requirements-h20.txt`](generation/requirements-h20.txt) and [`constraints-h20.txt`](generation/constraints-h20.txt). The validated trainer targets eight H20 GPUs and requires W&B online login. From `generation/`, `python -m h20.preflight --environment-only` checks the pinned runtime versions before training.
 
@@ -175,8 +164,22 @@ python experiments/feature_to_token_20260916/sweep_top_p_cfg.py \
   --output "$MOTAR_RESULTS/cfg_sweep_20k"
 ~~~
 
-For the reported 20k checkpoint, this protocol selected CFG **2.5**. It does not evaluate a 25k continuation.
+The sweep selects CFG on a fixed cohort before the final evaluation.
+
+### Continuous-context generation
+
+The latest MaskGIT code also provides a continuous 768D Halton context. It replaces proxy 2D IDs with an adapter that maps the 1D feature grid directly to Halton input embeddings. The selected positions are still generated as sparse 2D IDs. With the same variables above, a completed teacher-proxy cache and route-only cache are required:
+
+~~~bash
+export TOP_P_TEACHER_PROXY_CACHE=../assets/generation/teacher_proxy_top_p_train
+export TOP_P_ROUTE_CACHE=../assets/generation/top_p_continuous_route_cache
+bash scripts/launch_continuous_adapter20k.sh
+export CONTINUOUS_ADAPTER_CKPT="$MOTAR_RESULTS/continuous_adapter20k_seed20260918/latest.pt"
+bash scripts/launch_continuous_halton20k.sh
+~~~
+
+The [generation guide](generation/README.md#continuous-768d-context-variant) includes the cache contract and continuous-branch evaluation command.
 
 ## Reproducibility and credits
 
-The source tree and configuration paths can be inspected without the external assets. Reproducing the numerical rows requires the exact checkpoints, caches, ImageNet split, and FID assets above. The two component guides distinguish measured checkpoint results from the launch recipes. Third-party code under `generation/third_party/` keeps its original provenance and license files.
+The source tree and configuration paths can be inspected without the external assets. Training and evaluation require the checkpoints, caches, ImageNet split, and FID assets above. Third-party code under `generation/third_party/` keeps its original provenance and license files.
