@@ -46,6 +46,22 @@ The first stage trains the embedding adapter against the official Halton embeddi
 
 When evaluating a checkpoint trained on another machine, set `HALTON_UPSTREAM_ROOT` to the local Halton-MaskGIT source checkout. The evaluator checks that its six upstream source files match the hashes saved in the checkpoint before loading the model. `parallel_eval_compact.py` also accepts an inference-only top-p EMA export; the training scripts require the full top-p checkpoint.
 
+### Evaluate an existing checkpoint
+
+Place the TiTok weights under `$MOTAR_ASSETS/weights/` and the ADM graph and reference under `$MOTAR_ASSETS/fid/`. Set the paths above to the matching Halton, adapter, scorer, and top-p checkpoints. An eight-image GPU smoke test is:
+
+```bash
+python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
+  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
+  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
+  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
+  --top-p-checkpoint "$TOP_P_CKPT" \
+  --output "$MOTAR_RESULTS/continuous_eval_smoke8" \
+  --n 8 --workers 1 --allowed-gpus 0
+```
+
+Use `--n 5000` or `--n 50000` for ADM FID, with `--workers 1`, `2`, `4`, or `8` and a matching `--allowed-gpus` list. Each output directory must be new. The eight-image smoke confirms generation and feature extraction but does not report FID.
+
 ### Build the caches
 
 [`cache_teacher_targets.py`](experiments/continuous_halton_embedding_20260923/cache_teacher_targets.py) builds the teacher-token cache by decoding each 1D base image and re-encoding it with the frozen top-p VQ model. [`cache_routes.py`](experiments/continuous_halton_embedding_20260923/cache_routes.py) applies the accepted scorer to the frozen 1D features and records only the selected top-p positions. Neither cache builder trains a generator.
