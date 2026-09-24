@@ -27,6 +27,10 @@ class ContinuousRouteDataset(Dataset):
             raise RuntimeError('route/source provenance mismatch')
         if sha256(source_root/'titok_codes.npy') != config['source_titok_sha256']:
             raise RuntimeError('1D cache identity mismatch')
+        for name, expected in (('route_indices.npy', 'route_indices_sha256'),
+                               ('route_k.npy', 'route_k_sha256')):
+            if sha256(cache_root / name) != summary.get(expected):
+                raise RuntimeError(f'{name} hash differs from finalized route cache')
         self.z1d = np.load(source_root/'titok_codes.npy',mmap_mode='r')
         self.gt2d = np.load(gt_root/'llamagen_codes.npy',mmap_mode='r')
         self.labels = np.load(source_root/'labels.npy',mmap_mode='r')

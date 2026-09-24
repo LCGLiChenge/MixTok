@@ -77,7 +77,10 @@ def load_data_contract(codes_root: Path, proxy_root: Path, top_p_sha256: str):
     require(proxy_summary.get("status") == "complete"
             and proxy_summary.get("complete_coverage") is True,
             "proxy cache is incomplete")
-    require(proxy_summary.get("proxy_codes_sha256"), "proxy cache has no final SHA256")
+    require(proxy_summary.get("config_sha256") == sha256(proxy_config_path),
+            "proxy cache configuration hash differs")
+    require(proxy_summary.get("proxy_codes_sha256") == sha256(proxy_root / "proxy_codes.npy"),
+            "proxy cache data hash differs")
     require(proxy_summary.get("top_p_checkpoint_sha256") == top_p_sha256,
             "proxy targets use a different top-p tokenizer")
     require(proxy_config.get("source_titok_sha256") == sha256(codes_root / "titok_codes.npy"),
