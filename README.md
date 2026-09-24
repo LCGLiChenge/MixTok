@@ -3,10 +3,10 @@
 MixTok represents an image with **32 global 1D tokens** and a variable number of **spatial 2D refinement tokens**. A learned scorer ranks locations on a 16 × 16 grid, and top-p selection decides how many locations to refine for each image. The same mixed representation supports ImageNet reconstruction and class-conditional generation.
 
 <p align="center">
-  <img src="docs/mixtok-overview.drawio.png" width="100%" alt="MixTok combines 32 global 1D tokens with a content-adaptive set of 2D refinement tokens." />
+  <img src="docs/recon_image.png" width="100%" alt="ImageNet reconstruction examples comparing ground truth, 1D-only reconstruction, white selected-grid overlays, and reconstruction after 2D refinement." />
 </p>
 
-The diagram shows reconstruction: blue features come from the 1D representation; pink features replace them only at selected 2D positions. The PNG embeds editable draw.io XML.
+*ImageNet validation examples. Each group shows ground truth, 1D-only reconstruction, selected 2D grid locations in white, and the mixed reconstruction after refinement.*
 
 **Start here:** [Reconstruction guide](reconstruction/README.md) · [Generation guide](generation/README.md) · [Required assets](#data-and-checkpoints) · [Training and evaluation](#reconstruction)
 
@@ -17,6 +17,12 @@ The diagram shows reconstruction: blue features come from the 1D representation;
 3. **Mixed decoding.** Selected locations receive 2D codebook features; unselected locations keep their continuous 1D-derived features. A shared decoder renders the mixed grid.
 
 For **generation**, a TiTok MaskGIT first samples the 32 1D IDs. A scorer using the resulting 1D features selects 2D locations, and a sparse Halton MaskGIT generates IDs only there. A mapper supplies proxy IDs as generation context; its unselected proxies are not substituted into the final decoder grid.
+
+<p align="center">
+  <img src="docs/maskgit.png" width="88%" alt="MixTok generation pipeline with a 1D MaskGIT, top-p grid selection, proxy mapper, sparse 2D MaskGIT, and shared decoder." />
+</p>
+
+*Class-conditional generation: 1D tokens establish the base grid, and 2D MaskGIT generates tokens at the selected locations.*
 
 The fixed **96/256** allocation belongs to reconstruction warm-start training. Final reconstruction and generation use image-dependent top-p selection. Approximately 96 2D tokens is an **average budget**, not a per-image limit.
 
