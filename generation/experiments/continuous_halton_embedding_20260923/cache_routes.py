@@ -48,6 +48,7 @@ def prepare(args):
     config = dict(format=FORMAT, shape=[NUM_ROWS, 256], dtype='uint16',
                   flat_layout='flat_id=source_index*num_aug+augmentation',
                   p=args.p, temperature=args.temperature, world_size=args.world_size,
+                  batch_size=args.batch,
                   source_root=str(args.source_root.resolve()),
                   source_meta_sha256=sha256(args.source_root / 'meta.json'),
                   source_titok_sha256=sha256(args.source_root / 'titok_codes.npy'),
@@ -91,8 +92,9 @@ def extract(args):
     torch.backends.cudnn.allow_tf32 = False
     config = json.loads((args.output / 'config.json').read_text())
     require(config['format'] == FORMAT and config['world_size'] == args.world_size
+            and config.get('batch_size') == args.batch
             and config['p'] == args.p and config['temperature'] == args.temperature,
-            'route configuration changed')
+            'route configuration or extraction batch size changed')
     source = source_codes(args.source_root)
     require(sha256(args.source_root / 'titok_codes.npy') == config['source_titok_sha256'],
             '1D cache identity changed after prepare')

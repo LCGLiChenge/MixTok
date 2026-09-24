@@ -133,6 +133,7 @@ def expected_config(args, z1, meta_sha: str, z1_sha: str, total: int) -> dict:
         "top_p_checkpoint": str(args.top_p_ckpt.resolve()),
         "total_available": int(z1.shape[0] * z1.shape[1]),
         "world_size": args.world_size,
+        "batch_size": args.batch,
         "limit": args.limit,
     }
 
@@ -185,7 +186,9 @@ def extract(args) -> None:
 
     output = args.output.resolve()
     config = json.loads((output / "config.json").read_text())
-    require(config["format"] == FORMAT and config["world_size"] == args.world_size, "config mismatch")
+    require(config["format"] == FORMAT and config["world_size"] == args.world_size
+            and config.get("batch_size") == args.batch,
+            "teacher cache configuration or extraction batch size changed")
     total = int(config["shape"][0])
     z1, _, meta_sha, z1_sha = source_contract(args.source_root, args.top_p_ckpt)
     require(meta_sha == config["source_meta_sha256"] and z1_sha == config["source_titok_sha256"], "source drift")
