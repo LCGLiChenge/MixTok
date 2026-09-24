@@ -1,6 +1,6 @@
-# MoT: End-to-End Top-p Dynamic Token Allocation
+# MixTok Reconstruction: Dynamic Top-p Token Allocation
 
-This directory contains the current MoT reconstruction pipeline: an end-to-end Router selects a variable number of 2D refinement grids with a differentiable top-p mask, while the tokenizer and decoder are jointly optimized.
+This directory contains the MixTok reconstruction pipeline: an end-to-end Router selects a variable number of 2D refinement grids with a differentiable top-p mask, while the tokenizer and decoder are jointly optimized.
 
 The fixed-budget warm-start is included below. Earlier exploratory search and AR experiments are outside this reconstruction directory.
 
@@ -60,7 +60,7 @@ The resulting adapter EMA is saved in:
 results/adapter_only_2p5epoch/latest.pt
 ```
 
-Stage 2 initializes only the adapter from that checkpoint and trains fixed-budget MoT for 20 epochs. Every image always receives exactly 96 refinement grids ranked by the Grid Scorer:
+Stage 2 initializes only the adapter from that checkpoint and trains fixed-budget MixTok for 20 epochs. Every image always receives exactly 96 refinement grids ranked by the Grid Scorer:
 
 - epochs `0.0-0.5`: train only the Grid Scorer with gain-map supervision;
 - epochs `0.5-1.5`: joint fixed-top-96 reconstruction training without GAN loss;
@@ -86,8 +86,8 @@ The clean recipe is a new training protocol. Existing reference numbers in this 
 ## Environment
 
 ```bash
-conda env create -n MoT -f environment.yml
-conda activate MoT
+conda env create -n mixtok-reconstruction -f environment.yml
+conda activate mixtok-reconstruction
 ```
 
 The default configs are run from `reconstruction/` and assume these sibling paths in the merged repository:

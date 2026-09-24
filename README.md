@@ -1,26 +1,28 @@
-# MoT: reconstruction and sparse 2D generation
+# MixTok: Content-Adaptive 1D–2D Visual Tokens for Reconstruction and Generation
 
-Code accompanying the anonymous submission. This repository contains two connected pipelines:
+MixTok represents an image with **32 global 1D tokens** and a variable number of **spatial 2D refinement tokens**. A learned scorer ranks locations on a 16 × 16 grid, and top-p selection decides how many locations to refine for each image. The same mixed representation supports ImageNet reconstruction and class-conditional generation.
 
-1. **Reconstruction:** a TiTok-based 1D representation is decoded into a 16 × 16 feature grid. A scorer assigns probability mass over the 256 grid positions; a top-p rule selects a different number of 2D refinement tokens for each image. The selected features are refined before image decoding.
-2. **Generation:** a frozen TiTok MaskGIT produces 32 1D IDs. A scorer acting on the 1D features selects 2D positions, a mapper provides proxy 2D IDs, and a Halton MaskGIT generates IDs only at the selected positions. The decoder uses continuous 1D features at unselected positions.
+<p align="center">
+  <img src="docs/mixtok-overview.drawio.png" width="100%" alt="MixTok combines 32 global 1D tokens with a content-adaptive set of 2D refinement tokens." />
+</p>
 
-The fixed **96/256** grid budget appears only in the reconstruction warm-start stage. The final reconstruction and generation pipelines use image-dependent top-p selection.
+The diagram shows reconstruction: blue features come from the 1D representation; pink features replace them only at selected 2D positions. The PNG embeds editable draw.io XML.
 
-For a 16 × 16 grid, the router applies softmax to its 256 scores (after temperature scaling), sorts the resulting probabilities, and selects the shortest prefix whose cumulative mass reaches `p`. A straight-through surrogate supplies gradients during training. Thus `K` varies by image; the inference calibration targets roughly 96 selected positions **on average**, not 96 in every image. See `make_top_p_ste_mask` in the [reconstruction trainer](reconstruction/train_titok_llamagen_decoder_adapt_router_f2d_e2e_dynamic.py).
+**Start here:** [Reconstruction guide](reconstruction/README.md) · [Generation guide](generation/README.md) · [Required assets](#data-and-checkpoints) · [Training and evaluation](#reconstruction)
 
-## Contents
+## How MixTok works
 
-| Directory | Main purpose | Start here |
-| --- | --- | --- |
-| [`reconstruction/`](reconstruction/) | Adapter, fixed-budget warm-start, end-to-end top-p reconstruction, and ImageNet validation | [Reconstruction guide](reconstruction/README.md) |
-| [`generation/`](generation/) | Top-p condition preparation, sparse 2D MaskGIT training, CFG sweep, and generation evaluation | [Generation guide](generation/README.md) |
+1. **Global representation.** TiTok-L32 encodes 32 1D tokens. An adapter expands them into a continuous 16 × 16 feature grid.
+2. **Adaptive refinement.** A scorer ranks the 256 grid locations. After temperature-scaled softmax, top-p selects the smallest ranked prefix whose cumulative probability reaches `p`. The selected count `K(x)` changes with each image.
+3. **Mixed decoding.** Selected locations receive 2D codebook features; unselected locations keep their continuous 1D-derived features. A shared decoder renders the mixed grid.
 
-Each component is run from **its own directory**. Configuration paths are relative to that working directory; for example, `../ImageNet/train` in a reconstruction YAML means `repo/ImageNet/train`. The two components have different software environments.
+For **generation**, a TiTok MaskGIT first samples the 32 1D IDs. A scorer using the resulting 1D features selects 2D locations, and a sparse Halton MaskGIT generates IDs only there. A mapper supplies proxy IDs as generation context; its unselected proxies are not substituted into the final decoder grid.
 
-## Reported checkpoints and measurements
+The fixed **96/256** allocation belongs to reconstruction warm-start training. Final reconstruction and generation use image-dependent top-p selection. Approximately 96 2D tokens is an **average budget**, not a per-image limit.
 
-The following numbers describe evaluated checkpoints, not an expected outcome of simply running every current config from a fresh checkout.
+## Results at a glance
+
+These numbers describe evaluated checkpoints under the stated protocols. They are not expected results of simply running every current config from a fresh checkout.
 
 | Pipeline | Evaluated protocol | Result | Checkpoint relationship |
 | --- | --- | --- | --- |
@@ -29,12 +31,21 @@ The following numbers describe evaluated checkpoints, not an expected outcome of
 
 The checked-in `reconstruction/configs/top_p_train.yaml` specifies a **direct six-epoch run** from the fixed 20-epoch checkpoint. It is a distinct training lineage from the checkpoint used for the reported reconstruction row. Evaluate its output separately; do not assign the reference metrics to that run. The generation row likewise belongs to its completed 20k checkpoint, not a new run or a 25k continuation. See both component guides for the exact stage descriptions.
 
-## Directory and asset layout
+## Repository map
+
+| Directory | Main purpose | Start here |
+| --- | --- | --- |
+| [`reconstruction/`](reconstruction/) | Adapter, fixed-budget warm-start, end-to-end top-p reconstruction, and ImageNet validation | [Reconstruction guide](reconstruction/README.md) |
+| [`generation/`](generation/) | Top-p condition preparation, sparse 2D MaskGIT training, CFG sweep, and generation evaluation | [Generation guide](generation/README.md) |
+
+Each component is run from **its own directory**. Configuration paths are relative to that working directory; for example, `../ImageNet/train` in a reconstruction YAML means `MixTok/ImageNet/train`. The two components have different software environments.
+
+## Data and checkpoints
 
 Keep large files out of Git. The root `.gitignore` excludes the directories below. You may use directories or symlinks; the paths consumed by the checked-in configs stay relative to this repository.
 
 ~~~text
-repo/
+MixTok/
 ├── reconstruction/           # source and YAML configs
 ├── generation/               # source, scripts, and vendored adapters
 ├── 1d-tokenizer/             # upstream TiTok source and public L32 weights
@@ -128,7 +139,7 @@ Generation needs the **same evaluated top-p reconstruction checkpoint** plus its
 
 Prepare a separate Python 3.10/CUDA environment with PyTorch **2.10.0**, torchvision **0.25.0**, and the packages pinned in [`requirements-h20.txt`](generation/requirements-h20.txt) and [`constraints-h20.txt`](generation/constraints-h20.txt). The validated trainer targets eight H20 GPUs and requires W&B online login. From `generation/`, `python -m h20.preflight --environment-only` checks the pinned runtime versions before training.
 
-After supplying the assets, run the 20k launcher from the repository root:
+After supplying the assets, run the 20k launcher from the repository root. The historical `MOTAR_*` environment variable names are part of the script interface:
 
 ~~~bash
 cd generation
@@ -160,6 +171,6 @@ python experiments/feature_to_token_20260916/sweep_top_p_cfg.py \
 
 For the reported 20k checkpoint, this protocol selected CFG **2.5**. It does not evaluate a 25k continuation.
 
-## Scope of verification
+## Reproducibility and credits
 
 The source tree and configuration paths can be inspected without the external assets. Reproducing the numerical rows requires the exact checkpoints, caches, ImageNet split, and FID assets above. The two component guides distinguish measured checkpoint results from proposed clean-run recipes. Third-party code under `generation/third_party/` keeps its original provenance and license files.

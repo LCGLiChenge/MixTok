@@ -1,4 +1,4 @@
-# MoT top-p MaskGIT (20k release)
+# MixTok Generation: Sparse 2D MaskGIT
 
 This is the source snapshot for the completed **top-p sparse-2D MaskGIT** experiment. It contains the 20,000-update Halton training code, condition-cache/mapper/evaluation code, and the small vendor adapters needed by that code. It does **not** contain the later 20k→25k continuation, model weights, ImageNet, or generated caches.
 
@@ -28,11 +28,11 @@ The repository is **code-only**. Before training, provide:
 4. The accepted `f_1D`-only top-p scorer checkpoint, the separately trained codebook-8 mapper checkpoint, and their completed top-p condition cache. The trainer checks those checkpoint hashes against the cache metadata before starting.
 5. The full top-p GT code cache for ImageNet train (both cached augmentations, 2,562,334 rows) and ADM evaluation assets. `configs/h20_assets.json` records asset paths and hashes; `bert2d/paths.py` describes the asset layout.
 
-The trained checkpoints, generated caches, ImageNet data and ADM reference files are **not bundled here**. Supply non-public assets locally under `../assets/generation/` and verify their recorded hashes. This code cannot reproduce the published number from a fresh clone without those exact assets. Do not substitute earlier k-selector checkpoints.
+The trained checkpoints, generated caches, ImageNet data and ADM reference files are **not bundled here**. Supply non-public assets locally under `../assets/generation/` and verify their recorded hashes. This code cannot reproduce the reported gFID from a fresh clone without those exact assets. Do not substitute earlier k-selector checkpoints.
 
 ## Train the 20k version
 
-Run the following from `generation/` after placing assets in the adjacent directories. `MOTAR_RESULTS` points to a sibling directory outside this component. The launcher refuses an existing output directory.
+Run the following from `generation/` after placing assets in the adjacent directories. `MOTAR_RESULTS` points to a sibling directory outside this component. The launcher refuses an existing output directory. The historical `MOTAR_*` environment variable names remain part of its command-line interface.
 
 ```bash
 export MOTAR_ASSETS=../assets/generation
