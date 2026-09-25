@@ -232,7 +232,7 @@ def cli():
     p.add_argument('--reference-total',type=int,choices=(50000,),
                    help='generate exact first n images using 50k logical RNG batches')
     p.add_argument('--seed',type=int,default=20260914)
-    p.add_argument('--cfg-w',type=float,default=3.375)
+    p.add_argument('--cfg-w',type=float,default=3.0)
     p.add_argument('--stage1-guidance-scale',type=float,default=4.75,
                    help='TiTok 1D MaskGIT guidance scale; paper value is 4.75')
     p.add_argument('--stage1-randomize-temperature',type=float,default=9.5,

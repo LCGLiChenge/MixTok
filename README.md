@@ -37,7 +37,7 @@ The fixed **96/256** allocation belongs to reconstruction warm-start training. F
 | Directory | Main purpose | Start here |
 | --- | --- | --- |
 | [`reconstruction/`](reconstruction/) | Adapter, fixed-budget warm-start, end-to-end top-p reconstruction, and ImageNet validation | [Reconstruction guide](reconstruction/README.md) |
-| [`generation/`](generation/) | Continuous-embedding sparse 2D MaskGIT, CFG sweep, and generation evaluation | [Generation guide](generation/README.md) |
+| [`generation/`](generation/) | Continuous-embedding sparse 2D MaskGIT and generation evaluation | [Generation guide](generation/README.md) |
 
 Each component is run from **its own directory**. Configuration paths are relative to that working directory; for example, `../ImageNet/train` in a reconstruction YAML means `MixTok/ImageNet/train`. The two components have different software environments.
 
@@ -166,7 +166,7 @@ python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py
   --output "$MOTAR_RESULTS/continuous_eval_50k"
 ~~~
 
-The first launcher trains the continuous adapter, the second trains the sparse 2D MaskGIT, and the evaluator generates 50,000 samples using the final Stage 1 guidance 4.75 and Stage 2 CFG 3.375 defaults. Each training stage stops at 20,000 optimizer updates and writes `latest.pt`.
+The first launcher trains the continuous adapter, the second trains the sparse 2D MaskGIT, and the evaluator generates 50,000 samples using the final Stage 1 guidance 4.75 and fixed Stage 2 CFG 3.0 defaults. Each training stage stops at 20,000 optimizer updates and writes `latest.pt`.
 
 ## Reproducibility and credits
 

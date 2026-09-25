@@ -1,4 +1,4 @@
-"""Sequential 8-H20 adapter -> Halton -> fresh CFG sweep -> 50k gFID."""
+"""Sequential 8-H20 adapter -> Halton -> fixed-CFG 50k gFID."""
 import json
 import os
 from pathlib import Path
@@ -50,7 +50,7 @@ def halton_command(output,adapter,smoke=False,skip_fid=False):
         '-m',PACKAGE+'.train_halton','--upstream-root',str(UPSTREAM),'--pretrained',str(OFFICIAL),
         '--source-root',str(GT2D),'--cache-root',str(ROUTES),
         '--top-p-ckpt',str(TOPP),'--adapter-ckpt',str(adapter),'--scorer-ckpt',str(SCORER),
-        '--output',str(output),'--eval-stage2-steps','8','--eval-cfg-w','3.375']
+        '--output',str(output),'--eval-stage2-steps','8','--eval-cfg-w','3.0']
     if smoke:
         command+=['--smoke','--updates','3','--micro','1','--min-free-gib','4',
                   '--memory-fraction','.06','--adapter-step','3']
@@ -67,18 +67,20 @@ def main():
     os.environ.update(environment)
     adapter=RESULTS/'adapter20k_seed20260918'
     halton=RESULTS/'halton20k_seed0'
-    sweep=RESULTS/'cfg_sweep_50k'
+    final_eval=RESULTS/'final_eval_50k_cfg3'
     phases=[('adapter',adapter_command(adapter),adapter/'summary.json'),
         ('halton',halton_command(halton,adapter/'latest.pt'),halton/'complete.json'),
-        ('cfg_sweep_50k',[sys.executable,'-m',PACKAGE+'.sweep_cfg',
+        ('final_eval_50k',[sys.executable,'-m',PACKAGE+'.parallel_eval',
             '--checkpoint',str(halton/'latest.pt'),'--adapter-checkpoint',str(adapter/'latest.pt'),
             '--scorer-checkpoint',str(SCORER),'--top-p-checkpoint',str(TOPP),
-            '--output',str(sweep)],sweep/'summary.json')]
+            '--output',str(final_eval),'--n','50000','--seed','20260914',
+            '--cfg-w','3.0','--stage2-steps','8','--stage1-guidance-scale','4.75',
+            '--workers','8'],final_eval/'summary.json')]
     started=time.time()
     for phase,command,receipt in phases:
         if receipt.exists():
             result=json.loads(receipt.read_text())
-            if result.get('status')!='complete' or (phase!='cfg_sweep_50k' and result.get('step')!=20000):
+            if result.get('status')!='complete' or (phase in ('adapter','halton') and result.get('step')!=20000):
                 raise RuntimeError('existing phase receipt is not complete')
             continue
         child=subprocess.Popen(command,cwd=RUNTIME,env=environment)
@@ -88,10 +90,10 @@ def main():
         if code!=0:
             raise RuntimeError(f'{phase} exited with code {code}')
         result=json.loads(receipt.read_text())
-        if result.get('status')!='complete' or (phase!='cfg_sweep_50k' and result.get('step')!=20000):
+        if result.get('status')!='complete' or (phase in ('adapter','halton') and result.get('step')!=20000):
             raise RuntimeError(f'{phase} completion mismatch')
     atomic_json(RESULTS/'pipeline_status.json',dict(status='complete',pid=os.getpid(),started=started,
-        seconds=time.time()-started,final=json.loads((sweep/'summary.json').read_text())))
+        seconds=time.time()-started,final=json.loads((final_eval/'summary.json').read_text())))
 
 
 if __name__=='__main__':

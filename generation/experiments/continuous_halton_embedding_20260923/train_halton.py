@@ -403,7 +403,7 @@ if __name__ == "__main__":
                    help='Run on another CUDA GPU; exact paper numerics may differ')
     p.add_argument("--log-every", type=int, default=20)
     p.add_argument('--eval-gpu',default='auto')
-    p.add_argument('--eval-cfg-w',type=float,default=3.375)
+    p.add_argument('--eval-cfg-w',type=float,default=3.0)
     p.add_argument('--eval-stage2-steps',type=int,choices=(1,2,4,6,8,16,32,48,64),default=8)
     p.add_argument('--extra-eval-steps',default='2000,4000,8000,12000,16000,20000',
                    help='Comma-separated update numbers for additional async 5k evals')

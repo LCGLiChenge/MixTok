@@ -46,10 +46,9 @@ def snapshot(root=RESULTS):
         record['latest_eval'] = read_json(receipts[-1]) if receipts else None
         status = folder/'rank0.json'
     else:
-        folder = root/'cfg_sweep_50k'
-        record['sweep_progress'] = read_json(folder/'sweep_progress.json')
-        record['final_50k_status'] = read_json(folder/'final_50k/status.json')
-        status = folder/'sweep_progress.json'
+        folder = root/'final_eval_50k_cfg3'
+        record['final_50k_status'] = read_json(folder/'status.json')
+        status = folder/'status.json'
     record['progress_age_seconds'] = time.time()-status.stat().st_mtime if status.exists() else None
     record['advisories'] = []
     if failure:

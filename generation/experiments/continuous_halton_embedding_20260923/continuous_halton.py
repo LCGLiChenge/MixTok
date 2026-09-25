@@ -107,7 +107,7 @@ class ContinuousObjective(nn.Module):
 
 @torch.no_grad()
 def sample_continuous_completion(core, context, selected, labels, upstream_root,
-                                 steps=8,cfg_w=3.375,temperature=1.,trace=None):
+                                 steps=8,cfg_w=3.0,temperature=1.,trace=None):
     if core.training or steps < 1 or selected.dtype != torch.bool:
         raise ValueError('invalid sampling state')
     if context.shape != (len(selected),256,768):
