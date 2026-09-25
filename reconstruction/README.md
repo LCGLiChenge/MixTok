@@ -112,7 +112,7 @@ python download_public_weights.py \
 
 ## Checkpoint
 
-Training and evaluation checkpoints are not stored in Git. Place an exact-resume checkpoint at:
+Training and evaluation checkpoints are not stored in Git. Place the fixed 20-epoch Stage 2 checkpoint at:
 
 ```text
 weights/epoch_0020_step_00199440.pt
