@@ -1,4 +1,5 @@
 data_path: ../ImageNet/train
+seed: 0
 dataset_manifest: ""
 rebuild_dataset_manifest: false
 output_dir: results/top_p_from_fixed_6epoch

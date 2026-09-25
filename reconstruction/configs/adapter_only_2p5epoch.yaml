@@ -1,6 +1,7 @@
 # Stage 1 of the clean recipe: align TiTok-L32 tokens to the frozen
 # LlamaGen decoder feature space. No 2D-grid selection or mixed reconstruction.
 data_path: ../ImageNet/train
+seed: 0
 output_dir: results/adapter_only_2p5epoch
 resume: ""
 reset_optimizer: true

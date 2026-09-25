@@ -1,6 +1,7 @@
 # Stage 2 of the clean recipe: no random-grid pretraining.
 # The Grid Scorer always ranks a fixed top-96 budget.
 data_path: ../ImageNet/train
+seed: 0
 output_dir: results/fixed96_from_adapter_20epoch_bs24
 adapter_init: results/adapter_only_2p5epoch/latest.pt
 adapter_init_ema: true

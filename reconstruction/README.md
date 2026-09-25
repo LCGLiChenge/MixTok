@@ -73,7 +73,7 @@ public TiTok/LlamaGen weights
   -> fixed96_from_adapter_20epoch
 ```
 
-Stage 3 trains dynamic top-p for 6 epochs.
+Stage 3 trains dynamic top-p for 6 epochs. All three training configs set `seed: 0`. Each rank seeds Python, NumPy, PyTorch, and its data loader from that value; the distributed sampler also uses it for epoch shuffles. Record GPU type and software versions when comparing reruns, since CUDA arithmetic can still produce small differences.
 
 ## Environment
 

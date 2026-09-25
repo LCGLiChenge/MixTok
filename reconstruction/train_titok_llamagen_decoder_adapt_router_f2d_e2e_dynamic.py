@@ -54,6 +54,7 @@ from train_titok_llamagen_recon import (
     split_discriminator_logits,
     set_optimizer_lr,
     set_requires_grad,
+    seed_everything,
     weighted_logits_mean,
 )
 
@@ -1089,6 +1090,7 @@ def main(args):
         raise RuntimeError("CUDA is required for training")
     distributed, rank, world_size, local_rank, device = distributed_setup()
     is_main = rank == 0
+    seed_everything(args.seed, rank)
 
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
@@ -1097,7 +1099,8 @@ def main(args):
     dataset = build_cached_imagefolder(args, distributed, rank)
     if args.limit_samples > 0:
         dataset = Subset(dataset, list(range(min(args.limit_samples, len(dataset)))))
-    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=True) if distributed else None
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=True, seed=args.seed) if distributed else None
+    loader_generator = torch.Generator().manual_seed(args.seed + rank)
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -1107,6 +1110,7 @@ def main(args):
         pin_memory=True,
         drop_last=True,
         persistent_workers=args.num_workers > 0,
+        generator=loader_generator,
     )
     data_iter = cycle(loader, sampler)
     loader_steps_per_epoch = max(1, len(loader))
@@ -2084,6 +2088,7 @@ def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--data-path", type=str, default="../ImageNet/train")
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--dataset-manifest", type=str, default="")
     parser.add_argument("--rebuild-dataset-manifest", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--output-dir", type=str, default="results/titok_llamagen_decoder_adapt_mix")
