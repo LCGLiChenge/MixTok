@@ -261,7 +261,7 @@ if __name__=='__main__':
     p.add_argument('--stage1-guidance-scale',type=float,default=4.75)
     p.add_argument('--stage1-randomize-temperature',type=float,default=9.5)
     p.add_argument('--context-scale',type=float,default=1.0)
-    p.add_argument('--stage2-steps',type=int,choices=(1,2,4,6,8,16,32),default=8)
+    p.add_argument('--stage2-steps',type=int,choices=(1,2,4,6,8,16,32,48,64),default=8)
     p.add_argument('--stage2-logit-scale',type=float,default=1.0)
     p.add_argument('--router-p',type=float,default=0.75)
     p.add_argument('--scorer-checkpoint',type=Path,required=True)
