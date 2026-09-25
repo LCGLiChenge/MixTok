@@ -80,7 +80,7 @@ python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py
 Start with ImageNet train in the standard 1,000-class `ImageFolder` layout. Extract paired codes from the official TiTok tokenizer and the verified top-p EMA VQ weights. Match `--nproc_per_node` to the GPUs exposed by `CUDA_VISIBLE_DEVICES`; the paper run used eight GPUs.
 
 ```bash
-export IMAGENET_TRAIN=../assets/ImageNet/train
+export IMAGENET_TRAIN=../ImageNet/train
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --standalone --nproc_per_node=8 \
   scripts/extract_codes_top_p.py \
   --data-path "$IMAGENET_TRAIN" --output-root "$TOP_P_GT2D_CACHE" \
