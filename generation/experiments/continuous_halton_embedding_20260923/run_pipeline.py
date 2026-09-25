@@ -74,7 +74,7 @@ def main():
             '--checkpoint',str(halton/'latest.pt'),'--adapter-checkpoint',str(adapter/'latest.pt'),
             '--scorer-checkpoint',str(SCORER),'--top-p-checkpoint',str(TOPP),
             '--output',str(final_eval),'--n','50000','--seed','4',
-            '--cfg-w','3.0','--stage2-steps','8','--stage1-guidance-scale','4.75',
+            '--cfg-w','3.0','--stage2-steps','8','--stage1-guidance-scale','4.5',
             '--workers','8'],final_eval/'summary.json')]
     started=time.time()
     for phase,command,receipt in phases:

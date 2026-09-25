@@ -124,7 +124,7 @@ def run(args):
                 adapter_checkpoint=(str(args.adapter_checkpoint.resolve()) if args.adapter_checkpoint else None),
                 scorer_checkpoint=(str(args.scorer_checkpoint.resolve()) if args.scorer_checkpoint else None),
                 top_p_checkpoint=(str(args.top_p_checkpoint.resolve()) if args.top_p_checkpoint else None),
-                sampling_unchanged=(args.stage1_guidance_scale==4.75 and
+                sampling_unchanged=(args.stage1_guidance_scale==4.5 and
                                     args.stage1_randomize_temperature==9.5 and
                                     args.context_scale==1.0 and
                                     args.reference_total is None and
@@ -233,8 +233,8 @@ def cli():
                    help='generate exact first n images using 50k logical RNG batches')
     p.add_argument('--seed',type=int,default=4)
     p.add_argument('--cfg-w',type=float,default=3.0)
-    p.add_argument('--stage1-guidance-scale',type=float,default=4.75,
-                   help='TiTok 1D MaskGIT guidance scale; paper value is 4.75')
+    p.add_argument('--stage1-guidance-scale',type=float,default=4.5,
+                   help='TiTok 1D MaskGIT guidance scale; paper value is 4.5')
     p.add_argument('--stage1-randomize-temperature',type=float,default=9.5,
                    help='TiTok 1D Gumbel randomization amplitude; original value is 9.5')
     p.add_argument('--context-scale',type=float,default=1.0,

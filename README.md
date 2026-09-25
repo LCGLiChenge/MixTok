@@ -166,7 +166,7 @@ python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py
   --output "$MOTAR_RESULTS/continuous_eval_50k"
 ~~~
 
-The first launcher trains the continuous adapter, the second trains the sparse 2D MaskGIT, and the evaluator generates 50,000 samples using the final Stage 1 guidance 4.75 and fixed Stage 2 CFG 3.0 defaults. Each training stage stops at 20,000 optimizer updates and writes `latest.pt`.
+The first launcher trains the continuous adapter, the second trains the sparse 2D MaskGIT, and the evaluator generates 50,000 samples using the final Stage 1 guidance 4.5 and fixed Stage 2 CFG 3.0 defaults. Each training stage stops at 20,000 optimizer updates and writes `latest.pt`.
 
 ## Reproducibility and credits
 

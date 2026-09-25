@@ -156,7 +156,7 @@ python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py
   --output "$MOTAR_RESULTS/continuous_eval_50k"
 ```
 
-The first stage trains the embedding adapter against the official Halton embedding table using the teacher-token cache. The second stage freezes that adapter and trains sparse Halton MaskGIT using the route-only cache. The evaluator generates 50,000 samples with the final Stage 1 guidance 4.75 and fixed Stage 2 CFG 3.0 defaults. Both training stages write a rolling `latest.pt`. To run a diagnostic training pass on a different CUDA GPU, pass `--allow-non-h20` and lower `--min-free-gib` to the available memory. This changes the hardware used for the run and may change sampled outputs.
+The first stage trains the embedding adapter against the official Halton embedding table using the teacher-token cache. The second stage freezes that adapter and trains sparse Halton MaskGIT using the route-only cache. The evaluator generates 50,000 samples with the final Stage 1 guidance 4.5 and fixed Stage 2 CFG 3.0 defaults. Both training stages write a rolling `latest.pt`. To run a diagnostic training pass on a different CUDA GPU, pass `--allow-non-h20` and lower `--min-free-gib` to the available memory. This changes the hardware used for the run and may change sampled outputs.
 
 When evaluating a checkpoint trained on another machine, set `HALTON_UPSTREAM_ROOT` to the local Halton-MaskGIT source checkout. The evaluator checks that its six upstream source files match the hashes saved in the checkpoint before loading the model. `parallel_eval_compact.py`, the cache builders, and the training scripts accept the SHA-verified top-p EMA export. Training automatically uses the compact evaluator for that export. The paired-code extractor records both the artifact hash and its source checkpoint hash, so a copied cache can be verified without relying on its original absolute paths.
 
@@ -200,7 +200,7 @@ python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py
 
 Use `--n 5000` or `--n 50000` for ADM FID, with `--workers 1`, `2`, `4`, or `8` and a matching `--allowed-gpus` list. Stage 2 supports `--stage2-steps` values `1`, `2`, `4`, `6`, `8`, `16`, `32`, `48`, and `64`. Each output directory must be new. The eight-image smoke confirms generation and feature extraction but does not report FID.
 
-For the paper's generation setting, use 50,000 samples with TiTok guidance 4.75 and fixed Halton CFG 3.0. These are also the direct evaluator defaults; the remaining settings are seed 4, eight steps per stage, scorer temperature 2, and router top-p 0.75:
+For the paper's generation setting, use 50,000 samples with TiTok guidance 4.5 and fixed Halton CFG 3.0. These are also the direct evaluator defaults; the remaining settings are seed 4, eight steps per stage, scorer temperature 2, and router top-p 0.75:
 
 ```bash
 python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
@@ -210,7 +210,7 @@ python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py
   --top-p-checkpoint "$TOP_P_CKPT" \
   --output "$MOTAR_RESULTS/continuous_eval_paper50k" \
   --n 50000 --workers 4 --allowed-gpus 0,1,2,3 \
-  --stage1-guidance-scale 4.75 --cfg-w 3.0
+  --stage1-guidance-scale 4.5 --cfg-w 3.0
 ```
 
 ## Source layout

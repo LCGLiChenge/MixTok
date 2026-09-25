@@ -256,7 +256,7 @@ if __name__=='__main__':
     p.add_argument('--reference-total',type=int,default=None)
     p.add_argument('--seed',type=int,default=4)
     p.add_argument('--cfg-w',type=float,default=3.0)
-    p.add_argument('--stage1-guidance-scale',type=float,default=4.75)
+    p.add_argument('--stage1-guidance-scale',type=float,default=4.5)
     p.add_argument('--stage1-randomize-temperature',type=float,default=9.5)
     p.add_argument('--context-scale',type=float,default=1.0)
     p.add_argument('--stage2-steps',type=int,choices=(1,2,4,6,8,16,32,48,64),default=8)
