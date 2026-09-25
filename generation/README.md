@@ -15,6 +15,16 @@ This directory contains the **continuous embedding** generation path. The offici
 
 Checkpoints, ImageNet data, generated caches, and ADM reference files are external assets. Supply them under `../assets/` or set the paths below to their actual locations. The checked-in source uses relative paths and checks the expected asset identities.
 
+Create the pinned generation environment from `generation/`:
+
+```bash
+conda create -n mixtok-generation python=3.10 -y
+conda activate mixtok-generation
+python -m pip install -c constraints-h20.txt torch==2.10.0 torchvision==0.25.0
+python -m pip install -r requirements-h20.txt -c constraints-h20.txt
+python -m h20.preflight --environment-only
+```
+
 ## Train and evaluate
 
 Run from `generation/` after supplying the assets. The launchers require new output directories and run for 20,000 optimizer updates each.
