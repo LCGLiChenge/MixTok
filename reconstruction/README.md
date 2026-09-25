@@ -82,7 +82,7 @@ conda env create -n mixtok-reconstruction -f environment.yml
 conda activate mixtok-reconstruction
 ```
 
-The default configs are run from `reconstruction/` and assume these sibling paths in the merged repository:
+The default configs are run from `reconstruction/` and assume these sibling paths in the merged repository. Stage 2 and Stage 3 cache the scanned ImageNet file list under their output directories, so the ImageNet tree can be read-only. Set `--dataset-manifest` to a shared writable path if both stages should reuse one index:
 
 ```text
 repo/

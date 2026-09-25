@@ -1025,7 +1025,7 @@ def _scan_flat_imagefolder(root):
 
 def build_cached_imagefolder(args, distributed, rank):
     root = Path(args.data_path).resolve()
-    manifest_path = Path(args.dataset_manifest) if args.dataset_manifest else root / ".mot_imagefolder_manifest_v2.pt"
+    manifest_path = Path(args.dataset_manifest) if args.dataset_manifest else Path(args.output_dir) / "dataset_manifest.pt"
     manifest_path = manifest_path.resolve()
     build_error = [None]
 
