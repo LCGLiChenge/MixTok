@@ -26,7 +26,7 @@ exec torchrun --standalone --nproc_per_node=8 \
   --teacher-root "$TOP_P_TEACHER_PROXY_CACHE" \
   --top-p-ckpt "$TOP_P_CKPT" --pretrained "$HALTON_OFFICIAL_CKPT" \
   --assets-root "$MOTAR_ASSETS" --output "$output" \
-  --steps 40000 --stop-after 20000 \
+  --steps 20000 --stop-after 20000 \
   --batch 64 --eval-batch 64 --eval-every 500 --eval-sources 512 \
   --seed 20260918 --lr 5e-4 --warmup 500 --save-every 1000 \
   --wandb-project mixtok-continuous-halton

@@ -193,7 +193,7 @@ if __name__ == '__main__':
     for name in ('source-root','teacher-root','top-p-ckpt','pretrained','output'):
         p.add_argument('--'+name, type=Path, required=True)
     p.add_argument('--assets-root', type=Path, default=ASSETS)
-    p.add_argument('--steps', type=int, default=40000)
+    p.add_argument('--steps', type=int, default=20000)
     p.add_argument('--stop-after', type=int, default=20000)
     p.add_argument('--batch', type=int, default=64)
     p.add_argument('--eval-batch', type=int, default=64)
