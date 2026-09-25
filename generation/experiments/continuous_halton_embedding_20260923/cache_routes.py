@@ -52,6 +52,8 @@ def prepare(args):
                   source_root=str(args.source_root.resolve()),
                   source_meta_sha256=sha256(args.source_root / 'meta.json'),
                   source_titok_sha256=sha256(args.source_root / 'titok_codes.npy'),
+                  source_gt2d_sha256=sha256(args.source_root / 'llamagen_codes.npy'),
+                  source_labels_sha256=sha256(args.source_root / 'labels.npy'),
                   source_shape=list(codes.shape),
                   top_p_checkpoint_sha256=TOP_P_SHA256,
                   top_p_artifact_sha256=top_p_artifact_sha256,

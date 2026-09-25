@@ -140,7 +140,7 @@ python experiments/continuous_halton_embedding_20260923/cache_routes.py finalize
   --output "$TOP_P_ROUTE_CACHE" --world-size 8
 ```
 
-Cache identities and row alignment are validated again when training starts. The paired-code extractor records its batch size, GPU type, precision, and worker count in `run_config.json`; keep those settings when using `--resume`. Changing the batch size can change a few VQ IDs near codebook boundaries. The extractor writes code arrays before marking rows complete, so an interrupted run reprocesses only uncommitted rows. For a partial cache created before `run_config.json` existed, first verify the original command and add `--adopt-legacy-partial` to its initial resume. The teacher and route extractors also resume from written-row bitmaps and require the same `--batch` value used at `prepare` time.
+Cache identities and row alignment are validated again when training starts. The route cache records SHA-256 hashes of the source metadata, 1D codes, 2D GT codes, and labels; older route caches require the paired source `manifest.sha256` for the 2D GT and label checks. The paired-code extractor records its batch size, GPU type, precision, and worker count in `run_config.json`; keep those settings when using `--resume`. Changing the batch size can change a few VQ IDs near codebook boundaries. The extractor writes code arrays before marking rows complete, so an interrupted run reprocesses only uncommitted rows. For a partial cache created before `run_config.json` existed, first verify the original command and add `--adopt-legacy-partial` to its initial resume. The teacher and route extractors also resume from written-row bitmaps and require the same `--batch` value used at `prepare` time.
 
 ## Source layout
 

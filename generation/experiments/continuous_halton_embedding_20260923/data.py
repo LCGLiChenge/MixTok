@@ -12,6 +12,24 @@ FORMAT = 'top_p_continuous_route_cache_v1'
 NUM_SOURCES, NUM_AUG = 1281167,2
 
 
+def verify_source_file(config, root, key, filename):
+    """Bind training inputs to the route configuration or a legacy source manifest."""
+    expected = config.get(key)
+    if expected is None:
+        manifest = root / 'manifest.sha256'
+        if not manifest.is_file():
+            raise RuntimeError(f'{filename} has no recorded source hash')
+        entries = {}
+        for line in manifest.read_text().splitlines():
+            digest, name = line.split(maxsplit=1)
+            entries[name.lstrip('*')] = digest
+        expected = entries.get(filename)
+        if expected is None:
+            raise RuntimeError(f'{filename} is missing from source manifest')
+    if sha256(root / filename) != expected:
+        raise RuntimeError(f'{filename} hash differs from route source')
+
+
 class ContinuousRouteDataset(Dataset):
     def __init__(self, source_root, gt_root, cache_root):
         source_root,gt_root,cache_root = map(Path,(source_root,gt_root,cache_root))
@@ -25,8 +43,13 @@ class ContinuousRouteDataset(Dataset):
             or not meta.get('completed') or meta.get('mot_step') != 247482
             or meta.get('mot_state_key') != 'model_ema'):
             raise RuntimeError('route/source provenance mismatch')
+        if sha256(gt_root/'meta.json') != config['source_meta_sha256']:
+            raise RuntimeError('GT source metadata differs from route cache')
         if sha256(source_root/'titok_codes.npy') != config['source_titok_sha256']:
             raise RuntimeError('1D cache identity mismatch')
+        verify_source_file(config, gt_root, 'source_gt2d_sha256', 'llamagen_codes.npy')
+        verify_source_file(config, source_root, 'source_labels_sha256', 'labels.npy')
+        verify_source_file(config, gt_root, 'source_labels_sha256', 'labels.npy')
         for name, expected in (('route_indices.npy', 'route_indices_sha256'),
                                ('route_k.npy', 'route_k_sha256')):
             if sha256(cache_root / name) != summary.get(expected):
