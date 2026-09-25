@@ -256,7 +256,7 @@ if __name__=='__main__':
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--n',type=int,default=5000)
     p.add_argument('--reference-total',type=int,default=None)
-    p.add_argument('--seed',type=int,default=20260914)
+    p.add_argument('--seed',type=int,default=4)
     p.add_argument('--cfg-w',type=float,default=3.0)
     p.add_argument('--stage1-guidance-scale',type=float,default=4.75)
     p.add_argument('--stage1-randomize-temperature',type=float,default=9.5)

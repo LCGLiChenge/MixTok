@@ -200,7 +200,7 @@ python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py
 
 Use `--n 5000` or `--n 50000` for ADM FID, with `--workers 1`, `2`, `4`, or `8` and a matching `--allowed-gpus` list. Stage 2 supports `--stage2-steps` values `1`, `2`, `4`, `6`, `8`, `16`, `32`, `48`, and `64`. Each output directory must be new. The eight-image smoke confirms generation and feature extraction but does not report FID.
 
-For the paper's generation setting, use 50,000 samples with TiTok guidance 4.75 and fixed Halton CFG 3.0. These are also the direct evaluator defaults; the remaining settings are seed 20260914, eight steps per stage, scorer temperature 2, and router top-p 0.75:
+For the paper's generation setting, use 50,000 samples with TiTok guidance 4.75 and fixed Halton CFG 3.0. These are also the direct evaluator defaults; the remaining settings are seed 4, eight steps per stage, scorer temperature 2, and router top-p 0.75:
 
 ```bash
 python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
