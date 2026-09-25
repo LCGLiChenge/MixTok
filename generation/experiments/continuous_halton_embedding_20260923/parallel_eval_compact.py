@@ -7,6 +7,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 import time
 
 from bert2d.paths import ASSETS,EVALUATOR,atomic_json,output_path,sha256
