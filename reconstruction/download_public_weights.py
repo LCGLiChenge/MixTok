@@ -148,7 +148,7 @@ def public_weight_specs(project_root: Path, torch_cache_root: Path, hf_endpoint:
         },
         'llamagen_vq_ds16_c2i': {
             'path': project_root / 'LlamaGen' / 'pretrained_models' / 'vq_ds16_c2i.pt',
-            'download': lambda p: download_hf('FoundationVision/LlamaGen', 'vq_ds16_c2i.pt', p, hf_endpoint),
+            'download': lambda p: download_hf('FoundationVision/LlamaGen', 'vq_ds16_c2i.pt', p, hf_endpoint, revision='e467ee88f6c935f53db1c537dab4403a53c7a368'),
             'min_bytes': 1024 * 1024 * 200,
             'sha256': '109aa8afb2cf3761eec23cdc8644154cb498f5ab7eef2a35264d25e5e0499f7d',
             'torch_load': True,
