@@ -82,6 +82,17 @@ conda env create -n mixtok-reconstruction -f environment.yml
 conda activate mixtok-reconstruction
 ```
 
+From `reconstruction/`, check out the upstream source revisions used for the verified run. The commands below place both checkouts beside this directory:
+
+```bash
+cd ..
+git clone https://github.com/bytedance/1d-tokenizer.git 1d-tokenizer
+git -C 1d-tokenizer checkout 942a96fbdd873780179d1b78d5462911528bf8c8
+git clone https://github.com/FoundationVision/LlamaGen.git LlamaGen
+git -C LlamaGen checkout ce98ec41803a74a90ce68c40ababa9eaeffeb4ec
+cd reconstruction
+```
+
 The default configs are run from `reconstruction/` and assume these sibling paths in the merged repository. Stage 2 and Stage 3 cache the scanned ImageNet file list under their output directories, so the ImageNet tree can be read-only. Set `--dataset-manifest` to a shared writable path if both stages should reuse one index:
 
 ```text
