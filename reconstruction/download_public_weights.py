@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Download public pretrained weights needed by the current MoT top-p pipeline.
+"""Download and verify public pretrained weights for MixTok reconstruction.
 
-This does not download our private/trained checkpoint:
-  - weights/top_p_resume.pt
-
-Use --test to download into a temporary directory and delete the test files after
-basic validation.
+The trained MixTok checkpoints are not downloaded here. Use --test to download
+into a temporary directory and remove the files after validation.
 """
 
 from __future__ import annotations
@@ -89,7 +86,7 @@ def download_zip_extract(url: str, dest_dir: Path, strip_top_level: bool = True,
             shutil.rmtree(dest_dir)
         tmp_dest.replace(dest_dir)
 
-def download_hf(repo_id: str, filename: str, dest: Path, endpoint: str | None = None) -> None:
+def download_hf(repo_id: str, filename: str, dest: Path, endpoint: str | None = None, revision: str | None = None) -> None:
     try:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:
@@ -101,7 +98,7 @@ def download_hf(repo_id: str, filename: str, dest: Path, endpoint: str | None = 
     if endpoint:
         os.environ['HF_ENDPOINT'] = endpoint
     try:
-        downloaded = Path(hf_hub_download(repo_id=repo_id, filename=filename, local_dir=local_dir))
+        downloaded = Path(hf_hub_download(repo_id=repo_id, filename=filename, revision=revision, local_dir=local_dir))
     finally:
         if endpoint:
             if old_endpoint is None:
@@ -121,7 +118,7 @@ def validate_torch_load(path: Path) -> None:
         raise RuntimeError(f'torch.load returned None for {path}')
 
 
-def validate_file(path: Path, min_bytes: int, torch_load: bool = False, expected_md5: str | None = None) -> None:
+def validate_file(path: Path, min_bytes: int, torch_load: bool = False, expected_md5: str | None = None, expected_sha256: str | None = None) -> None:
     if not path.exists():
         raise FileNotFoundError(path)
     size = path.stat().st_size
@@ -131,6 +128,10 @@ def validate_file(path: Path, min_bytes: int, torch_load: bool = False, expected
         got = md5_file(path)
         if got != expected_md5:
             raise RuntimeError(f'md5 mismatch for {path}: got {got}, expected {expected_md5}')
+    if expected_sha256 is not None:
+        got = sha256_file(path)
+        if got != expected_sha256:
+            raise RuntimeError(f'sha256 mismatch for {path}: got {got}, expected {expected_sha256}')
     if torch_load:
         validate_torch_load(path)
     print(f'ok {path} ({size / (1024**2):.1f} MiB)', flush=True)
@@ -140,14 +141,16 @@ def public_weight_specs(project_root: Path, torch_cache_root: Path, hf_endpoint:
     return {
         'titok_l32': {
             'path': project_root / '1d-tokenizer' / 'tokenizer_titok_l32.bin',
-            'download': lambda p: download_hf('fun-research/TiTok', 'tokenizer_titok_l32.bin', p, hf_endpoint),
+            'download': lambda p: download_hf('fun-research/TiTok', 'tokenizer_titok_l32.bin', p, hf_endpoint, revision='ab646ed225080a3acb7c78440a574d7f67f16fa7'),
             'min_bytes': 1024 * 1024 * 1000,
+            'sha256': 'b8f0bf61e9ee1791d8b76fa723bdcb2c85a039a7d027e597f685db492935c31f',
             'torch_load': False,
         },
         'llamagen_vq_ds16_c2i': {
             'path': project_root / 'LlamaGen' / 'pretrained_models' / 'vq_ds16_c2i.pt',
             'download': lambda p: download_hf('FoundationVision/LlamaGen', 'vq_ds16_c2i.pt', p, hf_endpoint),
             'min_bytes': 1024 * 1024 * 200,
+            'sha256': '109aa8afb2cf3761eec23cdc8644154cb498f5ab7eef2a35264d25e5e0499f7d',
             'torch_load': True,
         },
         'dinov2_repo': {
@@ -160,6 +163,7 @@ def public_weight_specs(project_root: Path, torch_cache_root: Path, hf_endpoint:
             'path': torch_cache_root / 'hub' / 'checkpoints' / 'dinov2_vits14_pretrain.pth',
             'download': lambda p: download_url('https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth', p, retries=retries),
             'min_bytes': 1024 * 1024 * 50,
+            'sha256': 'b938bf1bc15cd2ec0feacfe3a1bb553fe8ea9ca46a7e1d8d00217f29aef60cd9',
             'torch_load': True,
         },
         'lpips_vgg': {
@@ -173,7 +177,7 @@ def public_weight_specs(project_root: Path, torch_cache_root: Path, hf_endpoint:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Download public pretrained weights for MoT top-p training.')
+    parser = argparse.ArgumentParser(description='Download verified public pretrained weights for MixTok reconstruction.')
     parser.add_argument('--project-root', type=Path, default=Path(".."), help='Root containing 1d-tokenizer and LlamaGen.')
     parser.add_argument('--torch-cache-root', type=Path, default=Path("../.cache/torch"), help='Torch cache root containing hub/checkpoints.')
     parser.add_argument('--test', action='store_true', help='Download into a temp dir, validate, then delete it.')
@@ -213,7 +217,8 @@ def main() -> int:
                 print(f'skip existing {name}: {path}', flush=True)
             else:
                 spec['download'](path)
-            validate_file(path, spec['min_bytes'], torch_load=spec.get('torch_load', False), expected_md5=spec.get('md5'))
+            validate_file(path, spec['min_bytes'], torch_load=spec.get('torch_load', False),
+                          expected_md5=spec.get('md5'), expected_sha256=spec.get('sha256'))
         print('all requested public weights are ready', flush=True)
         return 0
     finally:
