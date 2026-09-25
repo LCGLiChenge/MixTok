@@ -9,9 +9,9 @@ This directory contains the **continuous embedding** generation path. The offici
 - Python 3.10, eight H20 GPUs for the paper training configuration, PyTorch 2.10.0, torchvision 0.25.0, and the packages in [`requirements-h20.txt`](requirements-h20.txt) and [`constraints-h20.txt`](constraints-h20.txt). Training logs to W&B offline by default; online logging is optional.
 - Official Halton-MaskGIT source from [`valeoai/Halton-MaskGIT`](https://github.com/valeoai/Halton-MaskGIT) at commit `f61b0a1314717004dc7487531fd16a8bb71e1888`, and `ImageNet_256_base.pth` from [`llvictorll/Halton-MaskGIT`](https://huggingface.co/llvictorll/Halton-MaskGIT). The required checkpoint SHA-256 is `7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f`.
 - Official TiTok-L32 weights and the evaluated top-p reconstruction checkpoint at step 247482, loaded from `model_ema`. The top-p checkpoint SHA-256 is `61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819`. The full checkpoint or its SHA-verified EMA inference export can supply the frozen tokenizer modules used by generation. [`export_top_p_inference.py`](experiments/continuous_halton_embedding_20260923/export_top_p_inference.py) creates the smaller export.
-- The accepted 1D-feature top-p scorer checkpoint and the paired ImageNet top-p GT code cache, including both cached augmentations. The cache contains `titok_codes.npy`, `llamagen_codes.npy`, `labels.npy`, and `meta.json`.
+- The 1D-feature top-p scorer trained below and the paired ImageNet top-p GT code cache, including both cached augmentations. The cache contains `titok_codes.npy`, `llamagen_codes.npy`, `labels.npy`, and `meta.json`.
 - A completed teacher-token cache for adapter targets and a completed route-only cache for sparse training. The teacher cache's `proxy_codes.npy` filename is part of its existing data format; the generator uses continuous embeddings. The route cache contains `config.json`, `summary.json`, `route_indices.npy`, and `route_k.npy`.
-- ADM FID reference assets for evaluation. [`configs/h20_assets.json`](configs/h20_assets.json) records local asset paths, sizes, and hashes.
+- Official TiTok-L32 generator and tokenizer checkpoints under `assets/generation/weights/`, plus ADM FID graph and reference under `assets/generation/fid/` for evaluation. The public TiTok weights are listed in [`configs/h20_assets.json`](configs/h20_assets.json); that legacy asset list is not a complete manifest for this embedding experiment.
 
 Checkpoints, ImageNet data, generated caches, and ADM reference files are external assets. Supply them under `../assets/` or set the paths below to their actual locations. The checked-in source uses relative paths and checks the expected asset identities.
 
@@ -47,51 +47,30 @@ export TOP_P_SCORER_CKPT=../assets/generation/top_p_scorer/latest.pt
 export TOP_P_GT2D_CACHE=../assets/generation/gt2d_top_p_train
 export TOP_P_TEACHER_PROXY_CACHE=../assets/generation/teacher_proxy_top_p_train
 export TOP_P_ROUTE_CACHE=../assets/generation/top_p_continuous_route_cache
-
-bash scripts/launch_continuous_adapter20k.sh
-export CONTINUOUS_ADAPTER_CKPT="$MOTAR_RESULTS/continuous_adapter20k_seed20260918/latest.pt"
-bash scripts/launch_continuous_halton20k.sh
-
-python experiments/continuous_halton_embedding_20260923/sweep_cfg.py \
-  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
-  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
-  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
-  --top-p-checkpoint "$TOP_P_CKPT" \
-  --output "$MOTAR_RESULTS/continuous_cfg_sweep"
 ```
 
-The first stage trains the embedding adapter against the official Halton embedding table using the teacher-token cache. The second stage freezes that adapter and trains sparse Halton MaskGIT using the route-only cache. `sweep_cfg.py` selects CFG on a fixed 5k cohort, then evaluates the selected setting on 50k samples. Both training stages write a rolling `latest.pt`. To run a diagnostic training pass on a different CUDA GPU, pass `--allow-non-h20` and lower `--min-free-gib` to the available memory. This changes the hardware used for the run and may change sampled outputs.
+The order is: train the reconstruction model, train its 1D-only generation scorer, build paired codes and both caches, train the embedding adapter and sparse generator, then evaluate. The scorer uses the Stage 3 reconstruction dataset manifest (`reconstruction/results/top_p_from_fixed_6epoch/dataset_manifest.pt` by default).
 
-When evaluating a checkpoint trained on another machine, set `HALTON_UPSTREAM_ROOT` to the local Halton-MaskGIT source checkout. The evaluator checks that its six upstream source files match the hashes saved in the checkpoint before loading the model. `parallel_eval_compact.py`, the cache builders, and the training scripts accept the SHA-verified top-p EMA export. Training automatically uses the compact evaluator for that export. The paired-code extractor records both the artifact hash and its source checkpoint hash, so a copied cache can be verified without relying on its original absolute paths.
+### Train the generation Grid Scorer
 
-### Evaluate an existing checkpoint
-
-Place the TiTok weights under `$MOTAR_ASSETS/weights/` and the ADM graph and reference under `$MOTAR_ASSETS/fid/`. Set the paths above to the matching Halton, adapter, scorer, and top-p checkpoints. An eight-image GPU smoke test is:
+From `generation/`, distill the frozen Stage 3 EMA Router into a scorer that sees only the 1D feature grid:
 
 ```bash
-python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
-  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
-  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
-  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
-  --top-p-checkpoint "$TOP_P_CKPT" \
-  --output "$MOTAR_RESULTS/continuous_eval_smoke8" \
-  --n 8 --workers 1 --allowed-gpus 0
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --standalone --nproc_per_node=8 \
+  -m experiments.continuous_halton_embedding_20260923.top_p_scorer \
+  --source-root ../reconstruction --teacher-ckpt "$TOP_P_CKPT" \
+  --dataset-manifest ../reconstruction/results/top_p_from_fixed_6epoch/dataset_manifest.pt \
+  --titok-root ../1d-tokenizer \
+  --titok-config ../1d-tokenizer/configs/infer/TiTok/titok_l32.yaml \
+  --titok-ckpt ../1d-tokenizer/tokenizer_titok_l32.bin \
+  --llamagen-root ../LlamaGen --output-dir "$MOTAR_ASSETS/top_p_scorer" \
+  --steps 20000 --micro-batch 32 --num-workers 12 \
+  --hidden 128 --depth 3 --lr 2e-4 --weight-decay 1e-2 \
+  --teacher-temperature 2 --student-temperature 2 \
+  --logit-loss-weight 0.05
 ```
 
-Use `--n 5000` or `--n 50000` for ADM FID, with `--workers 1`, `2`, `4`, or `8` and a matching `--allowed-gpus` list. Each output directory must be new. The eight-image smoke confirms generation and feature extraction but does not report FID.
-
-For the paper's generation setting, use 50,000 samples with TiTok guidance 4.75 and Halton CFG 3.375. The remaining sampling settings use the evaluator defaults (seed 20260914, eight steps per stage, router top-p 0.75):
-
-```bash
-python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
-  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
-  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
-  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
-  --top-p-checkpoint "$TOP_P_CKPT" \
-  --output "$MOTAR_RESULTS/continuous_eval_paper50k" \
-  --n 50000 --workers 4 --allowed-gpus 0,1,2,3 \
-  --stage1-guidance-scale 4.75 --cfg-w 3.375
-```
+These values match the saved arguments of the accepted 20k scorer checkpoint (SHA-256 `52fddf824047fa9c207c046152275fc38715beb2020e0613ed9e7e73f2893a35`). Scorer distillation has no top-p cutoff in its loss; generation routes use `T=2`, `p=0.75` afterward. Keep the output as `TOP_P_SCORER_CKPT` for route caching, training, and evaluation.
 
 ### Build the caches
 
@@ -159,6 +138,56 @@ python experiments/continuous_halton_embedding_20260923/cache_routes.py finalize
 ```
 
 Cache identities and row alignment are validated again when training starts. The route cache records SHA-256 hashes of the source metadata, 1D codes, 2D GT codes, and labels; older route caches require the paired source `manifest.sha256` for the 2D GT and label checks. The paired-code extractor records its batch size, GPU type, precision, and worker count in `run_config.json`; keep those settings when using `--resume`. Changing the batch size can change a few VQ IDs near codebook boundaries. The extractor writes code arrays before marking rows complete, so an interrupted run reprocesses only uncommitted rows. For a partial cache created before `run_config.json` existed, first verify the original command and add `--adopt-legacy-partial` to its initial resume. The teacher and route extractors also resume from written-row bitmaps and require the same `--batch` value used at `prepare` time.
+
+### Train the embedding adapter and sparse generator
+
+After both caches have completed, run:
+
+```bash
+bash scripts/launch_continuous_adapter20k.sh
+export CONTINUOUS_ADAPTER_CKPT="$MOTAR_RESULTS/continuous_adapter20k_seed20260918/latest.pt"
+bash scripts/launch_continuous_halton20k.sh
+
+python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
+  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
+  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
+  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
+  --top-p-checkpoint "$TOP_P_CKPT" \
+  --output "$MOTAR_RESULTS/continuous_eval_50k"
+```
+
+The first stage trains the embedding adapter against the official Halton embedding table using the teacher-token cache. The second stage freezes that adapter and trains sparse Halton MaskGIT using the route-only cache. The evaluator generates 50,000 samples with the final Stage 1 guidance 4.75 and Stage 2 CFG 3.375 defaults. Both training stages write a rolling `latest.pt`. To run a diagnostic training pass on a different CUDA GPU, pass `--allow-non-h20` and lower `--min-free-gib` to the available memory. This changes the hardware used for the run and may change sampled outputs.
+
+When evaluating a checkpoint trained on another machine, set `HALTON_UPSTREAM_ROOT` to the local Halton-MaskGIT source checkout. The evaluator checks that its six upstream source files match the hashes saved in the checkpoint before loading the model. `parallel_eval_compact.py`, the cache builders, and the training scripts accept the SHA-verified top-p EMA export. Training automatically uses the compact evaluator for that export. The paired-code extractor records both the artifact hash and its source checkpoint hash, so a copied cache can be verified without relying on its original absolute paths.
+
+### Evaluate an existing checkpoint
+
+Place the TiTok weights under `$MOTAR_ASSETS/weights/` and the ADM graph and reference under `$MOTAR_ASSETS/fid/`. Set the paths above to the matching Halton, adapter, scorer, and top-p checkpoints. An eight-image GPU smoke test is:
+
+```bash
+python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
+  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
+  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
+  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
+  --top-p-checkpoint "$TOP_P_CKPT" \
+  --output "$MOTAR_RESULTS/continuous_eval_smoke8" \
+  --n 8 --workers 1 --allowed-gpus 0
+```
+
+Use `--n 5000` or `--n 50000` for ADM FID, with `--workers 1`, `2`, `4`, or `8` and a matching `--allowed-gpus` list. Each output directory must be new. The eight-image smoke confirms generation and feature extraction but does not report FID.
+
+For the paper's generation setting, use 50,000 samples with TiTok guidance 4.75 and Halton CFG 3.375. These are also the direct evaluator defaults; the remaining settings are seed 20260914, eight steps per stage, scorer temperature 2, and router top-p 0.75:
+
+```bash
+python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
+  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
+  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
+  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
+  --top-p-checkpoint "$TOP_P_CKPT" \
+  --output "$MOTAR_RESULTS/continuous_eval_paper50k" \
+  --n 50000 --workers 4 --allowed-gpus 0,1,2,3 \
+  --stage1-guidance-scale 4.75 --cfg-w 3.375
+```
 
 ## Source layout
 

@@ -10,7 +10,7 @@ RESULT_ROOT=Path(os.environ.get("MOTAR_RESULTS",ROOT.parent/"results/generation/
 EVALUATOR=ROOT/"bert2d/vendor/adm_evaluator.py"
 REFERENCE=ASSETS/"fid/VIRTUAL_imagenet256_labeled.npz"
 GRAPH=ASSETS/"fid/classify_image_graph_def.pb"
-ONE_D=dict(guidance_scale=4.5,guidance_decay="linear",randomize_temperature=9.5,
+ONE_D=dict(guidance_scale=4.75,guidance_decay="linear",randomize_temperature=9.5,
            softmax_temperature_annealing=False,num_sample_steps=8)
 def enable_h20(): pass
 def sha256(path):

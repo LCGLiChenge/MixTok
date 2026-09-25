@@ -61,7 +61,7 @@ MixTok/
 └── results/                  # generation runs and evaluations
 ~~~
 
-The repository does **not** redistribute ImageNet, trained checkpoints, generated token/condition caches, or ADM FID reference files. The generation asset manifest at [`generation/configs/h20_assets.json`](generation/configs/h20_assets.json) retains local paths, sizes, and SHA-256 values. Assets without a public source must be supplied separately and verified against those values.
+The repository does **not** redistribute ImageNet, trained checkpoints, generated token/condition caches, or ADM FID reference files. The generation asset list at [`generation/configs/h20_assets.json`](generation/configs/h20_assets.json) identifies public TiTok weights, but is not a complete manifest for the embedding experiment. Assets without a public source must be supplied separately.
 
 ### Checkpoint handoff
 
@@ -71,7 +71,7 @@ The repository does **not** redistribute ImageNet, trained checkpoints, generate
 | Fixed 20-epoch reconstruction checkpoint | Top-p reconstruction initialization | `reconstruction/weights/epoch_0020_step_00199440.pt` by default; SHA-256 `86c8f9da5e61261ab93066c73d7719203e8c00b69f05b805c5937e6b7319b446` |
 | Evaluated top-p checkpoint at step 247482 | Reconstruction validation and generation conditioning | Set the evaluation `ckpt` path and generation `TOP_P_CKPT` to the same file; SHA-256 `61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819` |
 | Official Halton initialization | Generation training | `assets/generation/ImageNet_256_base.pth` in the example below; SHA-256 `7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f` |
-| Top-p scorer, teacher-proxy and route caches, GT codes, ADM reference | Embedding generation training and evaluation | Supply under `assets/generation/`; training creates the continuous adapter checkpoint |
+| 1D-only generation scorer, teacher and route caches, GT codes, ADM reference | Embedding generation training and evaluation | Train the scorer from the Stage 3 EMA checkpoint using the [generation guide](generation/README.md); accepted 20k scorer SHA-256 `52fddf824047fa9c207c046152275fc38715beb2020e0613ed9e7e73f2893a35` |
 
 The generation code checks the TiTok and top-p checkpoint hashes in [`assets_top_p.py`](generation/experiments/continuous_halton_embedding_20260923/assets_top_p.py). Do not replace these with earlier fixed-budget or k-selector weights.
 
@@ -140,7 +140,7 @@ Generation uses **continuous embedding**. It needs the same evaluated top-p reco
 
 Use a separate Python 3.10/CUDA environment with PyTorch **2.10.0**, torchvision **0.25.0**, and the packages in [`requirements-h20.txt`](generation/requirements-h20.txt) and [`constraints-h20.txt`](generation/constraints-h20.txt). The training scripts target eight H20 GPUs and log to W&B offline by default; online logging is optional. From `generation/`, `python -m h20.preflight --environment-only` checks the pinned runtime versions.
 
-After supplying the external assets, run these commands from the repository root. The `MOTAR_*` environment variable names are part of the script interface:
+Complete scorer training and cache building in the [generation guide](generation/README.md), then run these commands from the repository root. The `MOTAR_*` environment variable names are part of the script interface:
 
 ~~~bash
 cd generation
@@ -158,15 +158,15 @@ bash scripts/launch_continuous_adapter20k.sh
 export CONTINUOUS_ADAPTER_CKPT="$MOTAR_RESULTS/continuous_adapter20k_seed20260918/latest.pt"
 bash scripts/launch_continuous_halton20k.sh
 
-python experiments/continuous_halton_embedding_20260923/sweep_cfg.py \
+python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
   --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
   --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
   --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
   --top-p-checkpoint "$TOP_P_CKPT" \
-  --output "$MOTAR_RESULTS/continuous_cfg_sweep"
+  --output "$MOTAR_RESULTS/continuous_eval_50k"
 ~~~
 
-The first launcher trains the continuous adapter, the second trains the sparse 2D MaskGIT, and the sweep selects CFG on a fixed 5k cohort before the 50k evaluation. Each training stage stops at 20,000 optimizer updates and writes `latest.pt`.
+The first launcher trains the continuous adapter, the second trains the sparse 2D MaskGIT, and the evaluator generates 50,000 samples using the final Stage 1 guidance 4.75 and Stage 2 CFG 3.375 defaults. Each training stage stops at 20,000 optimizer updates and writes `latest.pt`.
 
 ## Reproducibility and credits
 

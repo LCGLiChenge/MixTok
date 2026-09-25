@@ -20,7 +20,7 @@ def score(root: Path, cfg: float, args, identity: dict) -> dict:
     command = [sys.executable, str(Path(__file__).with_name('parallel_eval.py')),
                '--checkpoint', str(args.checkpoint), '--output', str(destination),
                '--n', '5000', '--seed', '20260914', '--cfg-w', str(cfg),
-               '--stage2-steps', '8', '--workers', '8',
+               '--stage2-steps', '8', '--stage1-guidance-scale', str(args.stage1_guidance_scale), '--workers', '8',
                '--adapter-checkpoint', str(args.adapter_checkpoint),
                '--scorer-checkpoint', str(args.scorer_checkpoint),
                '--top-p-checkpoint', str(args.top_p_checkpoint)]
@@ -50,7 +50,7 @@ def run(args):
     root.mkdir(parents=True, exist_ok=False)
     atomic_json(root / 'config.json', dict(identities=identities,
         cohort='image IDs 0..4999, labels ID modulo 1000, four logical shards',
-        seed=20260914, stage1='official TiTok 8 steps, CFG 4.5 linear, temperature 9.5',
+        seed=20260914, stage1=f'official TiTok 8 steps, guidance {args.stage1_guidance_scale} linear, temperature 9.5',
         stage2='Halton 8 steps, original CFG formula, direct selected-only replacement',
         coarse=[1., 1.5, 2., 2.5, 2.75, 3., 3.5, 4., 4.5],
         fine_rule='best coarse ±0.25 at 0.125 spacing; extend 0.5 outside if edge'))
@@ -84,7 +84,7 @@ def run(args):
     command = [sys.executable, str(Path(__file__).with_name('parallel_eval.py')),
                '--checkpoint', str(args.checkpoint), '--output', str(destination),
                '--n', '50000', '--seed', '20260914', '--cfg-w', str(chosen),
-               '--stage2-steps', '8', '--workers', '8',
+               '--stage2-steps', '8', '--stage1-guidance-scale', str(args.stage1_guidance_scale), '--workers', '8',
                '--adapter-checkpoint', str(args.adapter_checkpoint),
                '--scorer-checkpoint', str(args.scorer_checkpoint),
                '--top-p-checkpoint', str(args.top_p_checkpoint)]
@@ -107,4 +107,5 @@ if __name__ == '__main__':
     parser.add_argument('--scorer-checkpoint', type=Path, required=True)
     parser.add_argument('--top-p-checkpoint', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--stage1-guidance-scale', type=float, default=4.75)
     run(parser.parse_args())

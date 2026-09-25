@@ -37,6 +37,6 @@ exec torchrun --standalone --nproc_per_node=8 \
   --epochs 50 --stop-after 20000 --micro 32 --seed 0 \
   --lr 2e-5 --warmup 2500 --lr-schedule budget-cosine \
   --lr-hold-until 4000 --lr-decay-until 20000 --min-lr 2e-6 \
-  --eval-cfg-w 2.75 --eval-stage2-steps 8 \
+  --eval-cfg-w 3.375 --eval-stage2-steps 8 \
   --extra-eval-steps 2000,4000,8000,12000,16000,20000 \
   --eval-gpu auto --log-every 20 --wandb-project mixtok-continuous-halton

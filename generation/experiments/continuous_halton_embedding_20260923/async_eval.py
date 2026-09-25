@@ -10,7 +10,7 @@ from experiments.continuous_halton_embedding_20260923.assets_top_p import TOP_P_
 
 
 class AsyncTopPEval:
-    def __init__(self,out,gpu,n=5000,cfg_w=2.75,adapter_checkpoint=None,
+    def __init__(self,out,gpu,n=5000,cfg_w=3.375,adapter_checkpoint=None,
                  scorer_checkpoint=None,top_p_checkpoint=None,stage2_steps=8):
         self.out=Path(out);self.gpu=str(gpu);self.n=n;self.cfg_w=float(cfg_w)
         self.adapter_checkpoint=adapter_checkpoint

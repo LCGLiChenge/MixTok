@@ -50,7 +50,7 @@ def halton_command(output,adapter,smoke=False,skip_fid=False):
         '-m',PACKAGE+'.train_halton','--upstream-root',str(UPSTREAM),'--pretrained',str(OFFICIAL),
         '--source-root',str(GT2D),'--cache-root',str(ROUTES),
         '--top-p-ckpt',str(TOPP),'--adapter-ckpt',str(adapter),'--scorer-ckpt',str(SCORER),
-        '--output',str(output),'--eval-stage2-steps','8','--eval-cfg-w','2.75']
+        '--output',str(output),'--eval-stage2-steps','8','--eval-cfg-w','3.375']
     if smoke:
         command+=['--smoke','--updates','3','--micro','1','--min-free-gib','4',
                   '--memory-fraction','.06','--adapter-step','3']
