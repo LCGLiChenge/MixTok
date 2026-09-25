@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -47,6 +48,14 @@ from train_titok_llamagen_recon import (
 )
 
 IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(16 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class EvalImageDataset(Dataset):
@@ -263,6 +272,7 @@ class PathMetricAccumulator:
 
 
 def main(args):
+    checkpoint_sha256 = sha256_file(Path(args.ckpt))
     torch.manual_seed(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
@@ -539,6 +549,7 @@ def main(args):
     mask_tokens_var = max(mask_tokens_sq_sum / count_for_token_stats - mask_tokens_mean * mask_tokens_mean, 0.0)
     metrics = {
         "ckpt": str(args.ckpt),
+        "ckpt_sha256": checkpoint_sha256,
         "ckpt_step": ckpt_step,
         "ckpt_epoch": ckpt_epoch,
         "copied_params": copied,
