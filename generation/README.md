@@ -160,6 +160,30 @@ The first stage trains the embedding adapter against the official Halton embeddi
 
 When evaluating a checkpoint trained on another machine, set `HALTON_UPSTREAM_ROOT` to the local Halton-MaskGIT source checkout. The evaluator checks that its six upstream source files match the hashes saved in the checkpoint before loading the model. `parallel_eval_compact.py`, the cache builders, and the training scripts accept the SHA-verified top-p EMA export. Training automatically uses the compact evaluator for that export. The paired-code extractor records both the artifact hash and its source checkpoint hash, so a copied cache can be verified without relying on its original absolute paths.
 
+### Export an inference-only generation bundle
+
+The trained 1D generator, sparse Halton generator, continuous adapter, and
+top-p scorer can be collected into one model-only checkpoint:
+
+```bash
+python experiments/continuous_halton_embedding_20260923/export_compact_model.py \
+  --assets-root "$MOTAR_ASSETS" \
+  --halton-upstream-root "$HALTON_UPSTREAM_ROOT" \
+  --halton-checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
+  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
+  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
+  --output "$MOTAR_RESULTS/mixtok_generation_model.pt"
+```
+
+The exporter strict-loads every component, verifies the expected training
+steps and parameter ledger, removes only unused TiTok wrapper interfaces, and
+checks tensor equality after a save/load round trip. It writes a JSON manifest
+next to the checkpoint. The bundle intentionally excludes optimizers,
+schedulers, scalers, and other resume state, so it is for inference and model
+distribution rather than training resumption. If the Halton training
+checkpoint records a checkout path from another machine, pass the local
+checkout explicitly with `--halton-upstream-root` as shown above.
+
 ### Evaluate an existing checkpoint
 
 Place the TiTok weights under `$MOTAR_ASSETS/weights/` and the ADM graph and reference under `$MOTAR_ASSETS/fid/`. Set the paths above to the matching Halton, adapter, scorer, and top-p checkpoints. An eight-image GPU smoke test is:
