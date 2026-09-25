@@ -158,7 +158,7 @@ def checkpoint_identity(checkpoint, ckpt_path: str):
 
 
 def load_trainable_params(model: TiTokLlamaGenStage2, ckpt_path: str, require_latent_decoder: bool = False, use_model_ema: bool = False):
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    ckpt = torch.load(ckpt_path, map_location="cpu", mmap=True, weights_only=True)
     if use_model_ema:
         if not isinstance(ckpt, dict) or "model_ema" not in ckpt:
             raise RuntimeError(f"--use-model-ema requested but checkpoint has no model_ema: {ckpt_path}")
