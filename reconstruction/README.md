@@ -166,3 +166,4 @@ CUDA_VISIBLE_DEVICES=0 python \
 ```
 
 Both evaluation configs use EMA weights and the calibrated hard-inference setting (`T=1`, `p=0.994897`).
+Record the GPU model and evaluation `batch_size` for each run. BF16 outputs can change with batch size, so keep both fixed when comparing repeated runs; the 5,000-image screen does not replace the 50,000-image result.
