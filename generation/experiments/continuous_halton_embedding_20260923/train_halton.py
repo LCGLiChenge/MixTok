@@ -23,7 +23,7 @@ from experiments.continuous_halton_embedding_20260923.data import (
     RankDynamicBucketSampler, ContinuousRouteDataset,
     collate_continuous,
 )
-from experiments.continuous_halton_embedding_20260923.halton_upstream import official_training_api, load_pretrained
+from experiments.continuous_halton_embedding_20260923.halton_upstream import official_training_api, load_pretrained, verify_pinned_upstream
 from experiments.continuous_halton_embedding_20260923.continuous_halton import (
     ContinuousHalton, ContinuousObjective,
     sample_continuous_completion)
@@ -116,6 +116,7 @@ def run(args):
     torch.backends.cudnn.allow_tf32 = False
     if args.skip_smoke_fid and not args.smoke:
         raise ValueError("only small smoke may skip GPU FID")
+    upstream_hashes = verify_pinned_upstream(args.upstream_root)
     dist.init_process_group("nccl", timeout=timedelta(minutes=15))
     # RNG/header objects are CPU metadata; avoid creating extra CUDA gather
     # communicators while the low-memory smoke shares GPUs with another job.
@@ -176,10 +177,7 @@ def run(args):
                   route_meta_sha256=sha256(cache_config_path),
                   eval_router_mode='top-p-1d-only-scorer',
                   eval_stage2_steps=args.eval_stage2_steps,
-                  upstream_hashes={str(p):sha256(args.upstream_root / p) for p in (
-                      'Network/transformer.py','Utils/masking_scheduler.py',
-                      'Sampler/halton_sampler.py','Trainer/abstract_trainer.py',
-                      'Trainer/cls_trainer.py','launch/run_cls_to_img.sh')},
+                  upstream_hashes=upstream_hashes,
                   extra_eval_steps=extra_eval_steps,eval_every_epoch=True,
                   eval_n=8 if args.smoke else 5000,eval_gpu=str(args.eval_gpu),
                   log_every=args.log_every,

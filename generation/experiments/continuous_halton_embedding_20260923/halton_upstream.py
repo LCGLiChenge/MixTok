@@ -14,6 +14,14 @@ from torch import nn
 UPSTREAM_COMMIT = "f61b0a1314717004dc7487531fd16a8bb71e1888"
 TRANSFORMER_SHA256 = "3a94ad2ac63bc085e4c6982a1b7fce28c3bb263637626e88d596c3857beed856"
 PRETRAINED_SHA256 = "7fe25cb80b05743e8b42dacc61d88792a9ab5217d6bd756bef28821e0a5fc68f"
+UPSTREAM_SOURCE_SHA256 = {
+    "Network/transformer.py": TRANSFORMER_SHA256,
+    "Utils/masking_scheduler.py": "3f678c138ec3ef61416fce770307e263fd1ae8679be7e78341e4a0f3d41d1810",
+    "Sampler/halton_sampler.py": "a045249e853a6318dcfacac6b7f9f0155d64f0301faec0f666f9e7c23c0ab980",
+    "Trainer/abstract_trainer.py": "7e3620944ec47aa1ba516072f823609ad7330df12fd40d7f1cab86b8c6e0895e",
+    "Trainer/cls_trainer.py": "7012b7e61eee59044bf193922adc6e65db4541906d95e1e3da1e02bba4cb27bd",
+    "launch/run_cls_to_img.sh": "82569883ba4a01dc2c36f4a0cb0b0c2db8afd30d66e23379b7e55968d6738658",
+}
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -21,6 +29,19 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(16 * 1024**2), b""):
             digest.update(block)
     return digest.hexdigest()
+
+def verify_pinned_upstream(root: Path) -> dict[str, str]:
+    """Reject source drift before training or saving a generation checkpoint."""
+    root = Path(root)
+    for relative, expected in UPSTREAM_SOURCE_SHA256.items():
+        path = root / relative
+        if not path.is_file():
+            raise FileNotFoundError(f"Halton source missing: {path}")
+        actual = sha256(path)
+        if actual != expected:
+            raise RuntimeError(f"Halton source sha256 mismatch: {path}")
+    return dict(UPSTREAM_SOURCE_SHA256)
+
 
 def resolve_upstream_root(config: dict) -> Path:
     """Relocate a checkpoint's audited Halton source to this machine."""
