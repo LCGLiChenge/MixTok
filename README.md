@@ -101,8 +101,8 @@ The generation code checks the TiTok and top-p checkpoint hashes in [`assets_top
 Clone the repository:
 
 ```bash
-git clone https://github.com/LCGLiChenge/MixTok-Official.git
-cd MixTok-Official
+git clone https://github.com/LCGLiChenge/MixTok.git
+cd MixTok
 ```
 
 The reconstruction and generation pipelines use **separate environments**. Run component commands from their respective directories; configuration paths are relative to that working directory.
@@ -290,7 +290,7 @@ The default sampling recipe uses **8 steps per stage**, Stage 1 guidance **4.5**
 ## 8. Repository Layout
 
 ```text
-MixTok-Official/
+MixTok/
 ├── reconstruction/           # source and YAML configs
 ├── generation/               # source, scripts, and vendored adapters
 ├── 1d-tokenizer/             # upstream TiTok source and public L32 weights
