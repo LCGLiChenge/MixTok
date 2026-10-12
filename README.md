@@ -72,9 +72,9 @@ Released model files are hosted on [🤗 Chloeeeeeeee123/MixTok](https://hugging
 
 | Component | File |
 | --- | --- |
-| Reconstruction EMA model | [`recon/mixtok_rfid1.195_model_ema.pt`](https://huggingface.co/Chloeeeeeeee123/MixTok/blob/main/recon/mixtok_rfid1.195_model_ema.pt) |
-| Inference-only generation bundle | [`gene/mix_tok_generation_320609410params.pt`](https://huggingface.co/Chloeeeeeeee123/MixTok/blob/main/gene/mix_tok_generation_320609410params.pt) |
-| Generation bundle manifest | [`gene/mix_tok_generation_320609410params.pt.manifest.json`](https://huggingface.co/Chloeeeeeeee123/MixTok/blob/main/gene/mix_tok_generation_320609410params.pt.manifest.json) |
+| Reconstruction EMA model | [`recon/mixtok_recon.pt`](https://huggingface.co/Chloeeeeeeee123/MixTok/blob/main/recon/mixtok_recon.pt) |
+| Inference-only generation bundle | [`gene/mixtok_gen.pt`](https://huggingface.co/Chloeeeeeeee123/MixTok/blob/main/gene/mixtok_gen.pt) |
+| Generation bundle manifest | [`gene/mixtok_gen.pt.manifest.json`](https://huggingface.co/Chloeeeeeeee123/MixTok/blob/main/gene/mixtok_gen.pt.manifest.json) |
 
 Download the release files from the repository root after installing the environment:
 
