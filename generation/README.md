@@ -184,6 +184,39 @@ distribution rather than training resumption. If the Halton training
 checkpoint records a checkout path from another machine, pass the local
 checkout explicitly with `--halton-upstream-root` as shown above.
 
+### Evaluate the public release
+
+The evaluator accepts the hash-pinned public generation bundle together with the public reconstruction EMA export. It strict-loads the bundled Halton model, adapter, scorer, and 1D generator; no separate adapter or scorer files are needed. TiTok weights and the ADM graph/reference are still required under `$MOTAR_ASSETS`.
+
+From `generation/`, after installing the pinned environment and Halton source above:
+
+```bash
+export MOTAR_ASSETS="$(pwd)/../assets/generation"
+export MOTAR_RESULTS="$(pwd)/../results/generation"
+export HALTON_UPSTREAM_ROOT="$(pwd)/../Halton-MaskGIT/source"
+
+hf download Chloeeeeeeee123/MixTok --revision 1906bb6281940c152d1e25ea7049858c1a43f603 --local-dir ../assets/released
+hf download fun-research/TiTok generator_titok_l32.bin tokenizer_titok_l32.bin \
+  --revision ab646ed225080a3acb7c78440a574d7f67f16fa7 --local-dir "$MOTAR_ASSETS/weights"
+mkdir -p "$MOTAR_ASSETS/fid"
+curl --fail --location \
+  https://openaipublic.blob.core.windows.net/diffusion/jul-2021/ref_batches/imagenet/256/VIRTUAL_imagenet256_labeled.npz \
+  --output "$MOTAR_ASSETS/fid/VIRTUAL_imagenet256_labeled.npz"
+curl --fail --location \
+  https://openaipublic.blob.core.windows.net/diffusion/jul-2021/ref_batches/classify_image_graph_def.pb \
+  --output "$MOTAR_ASSETS/fid/classify_image_graph_def.pb"
+python -m pip install tensorflow==2.20.0 -c constraints-h20.txt
+python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
+  --checkpoint ../assets/released/gene/mixtok_gen.pt \
+  --top-p-checkpoint ../assets/released/recon/mixtok_recon.pt \
+  --output "$MOTAR_RESULTS/public_eval50k_b64" \
+  --n 50000 --batch-size 64 --workers 1 --allowed-gpus 0
+```
+
+For a one-batch smoke test with these RNG batches, use `--n 64 --reference-total 50000` and a new output directory. Smoke runs validate sampling and GPU feature extraction but do not report FID. `--batch-size` defaults to 8; changing it changes the random draws and sampled images. FP32 feature decoding and ADM feature extraction remain bounded to chunks of eight images. The manifest records the generation batch size and the public file hashes.
+
+The public reconstruction export contains `model_ema` without training-step or source-checkpoint metadata. Its hash and tensor structure are verified, its step is recorded as unknown, and its original training-checkpoint identity is not asserted. These metadata fields do not enter sampling or FID calculation. A single 50k run is distinct from the paper's four-run average.
+
 ### Evaluate an existing checkpoint
 
 Place the TiTok weights under `$MOTAR_ASSETS/weights/` and the ADM graph and reference under `$MOTAR_ASSETS/fid/`. Set the paths above to the matching Halton, adapter, scorer, and top-p checkpoints. An eight-image GPU smoke test is:

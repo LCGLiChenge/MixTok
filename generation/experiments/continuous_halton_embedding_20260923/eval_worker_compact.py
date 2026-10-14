@@ -25,7 +25,7 @@ from experiments.continuous_halton_embedding_20260923.assets_top_p import (TopPF
 from experiments.continuous_halton_embedding_20260923.continuous_halton import ContinuousHalton
 from experiments.continuous_halton_embedding_20260923.halton_upstream import resolve_upstream_root
 from experiments.continuous_halton_embedding_20260923.continuous_halton import sample_continuous_completion
-from experiments.continuous_halton_embedding_20260923.parallel_eval import worker_batches
+from experiments.continuous_halton_embedding_20260923.parallel_eval_compact import worker_batches
 from experiments.continuous_halton_embedding_20260923.embedding_adapter import load_adapter, FORMAT
 from experiments.continuous_halton_embedding_20260923.top_p_scorer import OneDTopPGridScorer, top_p_mask
 from experiments.continuous_halton_embedding_20260923.adapter_data import make_features
@@ -58,90 +58,113 @@ def main(args):
     out=output_path(args.output)
     out.mkdir(parents=True,exist_ok=True)
     shard_id=args.worker_shard
-    batches=worker_batches(args.n,args.worker_count,shard_id,args.reference_total)
+    batches=worker_batches(args.n,args.worker_count,shard_id,args.reference_total,args.batch_size)
     status_path=out/f'status_shard{shard_id}.json'
     if status_path.exists(): raise FileExistsError(status_path)
     started=time.monotonic()
     atomic_json(status_path,dict(status='loading',pid=os.getpid(),completed=0))
-    digest=sha256(args.checkpoint)
-    state=torch.load(args.checkpoint,map_location='cpu',mmap=True,weights_only=True)
-    config=state['config'];step=state['step']
-    upstream_root=resolve_upstream_root(config)
-    model=ContinuousHalton(upstream_root)
-    model.load_state_dict(state['model'],strict=True)
-    model=model.to(device).eval().requires_grad_(False)
-    del state
-    top_p_artifact_digest=sha256(args.top_p_checkpoint)
-    top_p_digest=TOP_P_SHA256
-    if (top_p_artifact_digest not in (TOP_P_SHA256,TOP_P_INFERENCE_SHA256)
-            or top_p_digest!=config['top_p_condition_audit']['config']['top_p_checkpoint_sha256']):
-        raise RuntimeError('evaluation tokenizer differs from training tokenizer')
-    assets=TopPFrozenAssets(ASSETS,args.top_p_checkpoint,device,chunk=4)
-    scorer_digest=sha256(args.scorer_checkpoint)
-    if scorer_digest!=config['top_p_condition_audit']['config']['scorer_sha256']:
-        raise RuntimeError('evaluation scorer differs from training route cache')
-    scorer_state=torch.load(args.scorer_checkpoint,map_location='cpu',weights_only=True)
-    scorer_args=scorer_state['args']
-    scorer=OneDTopPGridScorer(hidden=int(scorer_args['hidden']),
-                              depth=int(scorer_args['depth'])).to(device)
-    scorer.load_state_dict(scorer_state['model'],strict=True)
-    scorer=scorer.eval().requires_grad_(False)
-    del scorer_state
-    adapter_digest=sha256(args.adapter_checkpoint)
-    parent_adapter_sha=config['adapter_sha256']
-    joint_finetune=bool(config.get('joint_finetune',False))
-    if joint_finetune:
-        if args.allow_adapter_override or adapter_digest!=config.get('joint_adapter_sha256'):
-            raise RuntimeError('joint Halton requires its paired fine-tuned adapter')
-        adapter_state=torch.load(args.adapter_checkpoint,map_location='cpu',mmap=True,weights_only=True)
-        candidate_config=adapter_state['train_config']
-        if (candidate_config.get('joint_finetune') is not True
-                or candidate_config.get('parent_adapter_sha256')!=parent_adapter_sha
-                or candidate_config.get('parent_halton_sha256')
-                    !=config.get('parent_halton_checkpoint_sha256')):
-            raise RuntimeError('joint adapter has the wrong parent model lineage')
-        del adapter_state
-        required_step=config['adapter_step']
-    elif args.allow_adapter_override:
-        adapter_state=torch.load(args.adapter_checkpoint,map_location='cpu',mmap=True,weights_only=True)
-        candidate_config=adapter_state['train_config']
-        if (candidate_config.get('parent_adapter_sha256')!=parent_adapter_sha
-                or candidate_config.get('parent_halton_sha256')!=digest):
-            raise RuntimeError('adapter override does not descend from this Halton/adapter pair')
-        del adapter_state
-        required_step=args.adapter_step
+    from experiments.continuous_halton_embedding_20260923.public_release import (
+        GENERATION_SHA256, load_public_release)
+    if sha256(args.checkpoint) == GENERATION_SHA256:
+        loaded = load_public_release(args, ASSETS, device)
+        digest = loaded.digest
+        config = loaded.config
+        step = loaded.step
+        upstream_root = loaded.upstream_root
+        model = loaded.model
+        assets = loaded.assets
+        scorer = loaded.scorer
+        adapter = loaded.adapter
+        adapter_audit = loaded.adapter_audit
+        router_audit = loaded.router_audit
+        one_d = loaded.one_d
+        one_d_audit = loaded.one_d_audit
+        view = loaded.view
+        top_p_digest = loaded.top_p_digest
+        top_p_artifact_digest = loaded.top_p_artifact_digest
+        del loaded
     else:
-        if adapter_digest!=parent_adapter_sha or args.adapter_step is not None:
-            raise RuntimeError('evaluation adapter differs from training checkpoint')
-        required_step=config['adapter_step']
-    adapter, adapter_config = load_adapter(args.adapter_checkpoint, device, top_p_digest, required_step)
-    adapter_audit=dict(checkpoint=str(args.adapter_checkpoint.resolve()),sha256=adapter_digest,
-                      step=required_step,format=FORMAT,
-                      inference_scale=args.context_scale,training_scale=1.0,
-                      override_of_training_adapter=args.allow_adapter_override,
-                      joint_finetune=joint_finetune,
-                      parent_training_adapter_sha256=parent_adapter_sha,
-                      parameters=sum(p.numel() for p in adapter.parameters()))
-    router_audit=dict(mode='top-p-1d-only-scorer',checkpoint=str(args.scorer_checkpoint.resolve()),
-                      sha256=scorer_digest,p=args.router_p,training_p=.75,temperature=2.,
-                      selection='sorted probability prefix where cumulative-before < p')
-    one_d,one_d_audit=official_model(ASSETS)
-    before=sum(p.numel() for p in one_d.parameters())
-    removed=0
-    for name in ('embedding_2d','pos_embedding_2d','budget_embedding','output_2d'):
-        module=getattr(one_d,name,None)
-        if module is None:
-            raise RuntimeError(f'missing unused 1D wrapper module: {name}')
-        removed+=sum(p.numel() for p in module.parameters())
-        delattr(one_d,name)
-    after=sum(p.numel() for p in one_d.parameters())
-    if (before,removed,after)!=(202585088,25382656,177202432):
-        raise RuntimeError('unexpected 1D wrapper parameter ledger after pruning')
-    one_d_audit=dict(one_d_audit,unused_2d_interfaces_pruned=True,
-                     removed_parameters=removed,parameters_before=before,
-                     parameters_after=after)
-    one_d=one_d.to(device).eval().requires_grad_(False)
-    view=OfficialSamplingView(one_d).eval()
+        if args.scorer_checkpoint is None or args.adapter_checkpoint is None:
+            raise ValueError('legacy training checkpoints require --scorer-checkpoint and --adapter-checkpoint')
+        digest=sha256(args.checkpoint)
+        state=torch.load(args.checkpoint,map_location='cpu',mmap=True,weights_only=True)
+        config=state['config'];step=state['step']
+        upstream_root=resolve_upstream_root(config)
+        model=ContinuousHalton(upstream_root)
+        model.load_state_dict(state['model'],strict=True)
+        model=model.to(device).eval().requires_grad_(False)
+        del state
+        top_p_artifact_digest=sha256(args.top_p_checkpoint)
+        top_p_digest=TOP_P_SHA256
+        if (top_p_artifact_digest not in (TOP_P_SHA256,TOP_P_INFERENCE_SHA256)
+                or top_p_digest!=config['top_p_condition_audit']['config']['top_p_checkpoint_sha256']):
+            raise RuntimeError('evaluation tokenizer differs from training tokenizer')
+        assets=TopPFrozenAssets(ASSETS,args.top_p_checkpoint,device,chunk=4)
+        scorer_digest=sha256(args.scorer_checkpoint)
+        if scorer_digest!=config['top_p_condition_audit']['config']['scorer_sha256']:
+            raise RuntimeError('evaluation scorer differs from training route cache')
+        scorer_state=torch.load(args.scorer_checkpoint,map_location='cpu',weights_only=True)
+        scorer_args=scorer_state['args']
+        scorer=OneDTopPGridScorer(hidden=int(scorer_args['hidden']),
+                                  depth=int(scorer_args['depth'])).to(device)
+        scorer.load_state_dict(scorer_state['model'],strict=True)
+        scorer=scorer.eval().requires_grad_(False)
+        del scorer_state
+        adapter_digest=sha256(args.adapter_checkpoint)
+        parent_adapter_sha=config['adapter_sha256']
+        joint_finetune=bool(config.get('joint_finetune',False))
+        if joint_finetune:
+            if args.allow_adapter_override or adapter_digest!=config.get('joint_adapter_sha256'):
+                raise RuntimeError('joint Halton requires its paired fine-tuned adapter')
+            adapter_state=torch.load(args.adapter_checkpoint,map_location='cpu',mmap=True,weights_only=True)
+            candidate_config=adapter_state['train_config']
+            if (candidate_config.get('joint_finetune') is not True
+                    or candidate_config.get('parent_adapter_sha256')!=parent_adapter_sha
+                    or candidate_config.get('parent_halton_sha256')
+                        !=config.get('parent_halton_checkpoint_sha256')):
+                raise RuntimeError('joint adapter has the wrong parent model lineage')
+            del adapter_state
+            required_step=config['adapter_step']
+        elif args.allow_adapter_override:
+            adapter_state=torch.load(args.adapter_checkpoint,map_location='cpu',mmap=True,weights_only=True)
+            candidate_config=adapter_state['train_config']
+            if (candidate_config.get('parent_adapter_sha256')!=parent_adapter_sha
+                    or candidate_config.get('parent_halton_sha256')!=digest):
+                raise RuntimeError('adapter override does not descend from this Halton/adapter pair')
+            del adapter_state
+            required_step=args.adapter_step
+        else:
+            if adapter_digest!=parent_adapter_sha or args.adapter_step is not None:
+                raise RuntimeError('evaluation adapter differs from training checkpoint')
+            required_step=config['adapter_step']
+        adapter, adapter_config = load_adapter(args.adapter_checkpoint, device, top_p_digest, required_step)
+        adapter_audit=dict(checkpoint=str(args.adapter_checkpoint.resolve()),sha256=adapter_digest,
+                          step=required_step,format=FORMAT,
+                          inference_scale=args.context_scale,training_scale=1.0,
+                          override_of_training_adapter=args.allow_adapter_override,
+                          joint_finetune=joint_finetune,
+                          parent_training_adapter_sha256=parent_adapter_sha,
+                          parameters=sum(p.numel() for p in adapter.parameters()))
+        router_audit=dict(mode='top-p-1d-only-scorer',checkpoint=str(args.scorer_checkpoint.resolve()),
+                          sha256=scorer_digest,p=args.router_p,training_p=.75,temperature=2.,
+                          selection='sorted probability prefix where cumulative-before < p')
+        one_d,one_d_audit=official_model(ASSETS)
+        before=sum(p.numel() for p in one_d.parameters())
+        removed=0
+        for name in ('embedding_2d','pos_embedding_2d','budget_embedding','output_2d'):
+            module=getattr(one_d,name,None)
+            if module is None:
+                raise RuntimeError(f'missing unused 1D wrapper module: {name}')
+            removed+=sum(p.numel() for p in module.parameters())
+            delattr(one_d,name)
+        after=sum(p.numel() for p in one_d.parameters())
+        if (before,removed,after)!=(202585088,25382656,177202432):
+            raise RuntimeError('unexpected 1D wrapper parameter ledger after pruning')
+        one_d_audit=dict(one_d_audit,unused_2d_interfaces_pruned=True,
+                         removed_parameters=removed,parameters_before=before,
+                         parameters_after=after)
+        one_d=one_d.to(device).eval().requires_grad_(False)
+        view=OfficialSamplingView(one_d).eval()
     stage1_sampling=dict(ONE_D,guidance_scale=args.stage1_guidance_scale,
                          randomize_temperature=args.stage1_randomize_temperature)
     from bert2d.assets import FID,check
@@ -156,8 +179,9 @@ def main(args):
     decoder_identities=dict(top_p_checkpoint_sha256=top_p_digest,
                             top_p_artifact_sha256=top_p_artifact_digest,
                             native_titok_checkpoint_sha256=sha256(ASSETS/'weights/tokenizer_titok_l32.bin'),
-                            state_key='model_ema',top_p_step=247482)
-    manifest=dict(n=args.n,step=step,checkpoint_sha256=digest,batch=8,logical_shards=4,seed=args.seed,
+                            state_key='model_ema',top_p_step=assets.audit['top_p_step'],
+                            training_source_identity_verified=assets.audit.get('training_source_identity_verified', True))
+    manifest=dict(fid_feature_batch=8,n=args.n,step=step,checkpoint_sha256=digest,batch=args.batch_size,logical_shards=4,seed=args.seed,
         screen_batch_plan_total=args.reference_total,
         stage1=stage1_sampling,one_d_audit=one_d_audit,router=router_audit,
         stage2={**config['sampling'],'cfg_w':args.cfg_w,'steps':args.stage2_steps,
@@ -190,7 +214,7 @@ def main(args):
                 torch.manual_seed(args.seed+2*int(ids[0]))
                 with torch.autocast('cuda',dtype=torch.bfloat16):
                     z1=ImageBert.generate(view,condition=labels,**stage1_sampling)
-                base=make_features(z1,assets.native.quantize,assets.shell.latent_decoder)
+                base=torch.cat([make_features(part,assets.native.quantize,assets.shell.latent_decoder) for part in z1.split(8)])
                 selected,route_counts=top_p_mask(scorer(base.float()),args.router_p,2.)
                 if not bool(((route_counts>=1)&(route_counts<=256)).all()):
                     raise RuntimeError('unexpected top-p router budget')
@@ -223,7 +247,7 @@ def main(args):
                     if not gpu_checked:
                         metadata=tf.RunMetadata()
                         kwargs=dict(options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),run_metadata=metadata)
-                    features=session.run(evaluator.pool_features,{evaluator.image_input:images.astype(np.float32)},**kwargs).reshape(len(ids),2048)
+                    features=np.concatenate([session.run(evaluator.pool_features,{evaluator.image_input:part.astype(np.float32)},**(kwargs if i==0 else {})).reshape(len(part),2048) for i,part in enumerate(np.array_split(images,range(8,len(images),8)))])
                     if not gpu_checked:
                         devices=[d.device for d in metadata.step_stats.dev_stats if 'GPU' in d.device.upper()
                                  and any('conv' in n.node_name.lower() for n in d.node_stats)]
@@ -257,6 +281,7 @@ if __name__=='__main__':
     p.add_argument('--n',type=int,default=5000)
     p.add_argument('--reference-total',type=int,default=None)
     p.add_argument('--seed',type=int,default=4)
+    p.add_argument('--batch-size',type=int,default=8)
     p.add_argument('--cfg-w',type=float,default=3.0)
     p.add_argument('--stage1-guidance-scale',type=float,default=4.5)
     p.add_argument('--stage1-randomize-temperature',type=float,default=9.5)
@@ -264,14 +289,15 @@ if __name__=='__main__':
     p.add_argument('--stage2-steps',type=int,choices=(1,2,4,6,8,16,32,48,64),default=8)
     p.add_argument('--stage2-logit-scale',type=float,default=1.0)
     p.add_argument('--router-p',type=float,default=0.75)
-    p.add_argument('--scorer-checkpoint',type=Path,required=True)
+    p.add_argument('--scorer-checkpoint',type=Path)
     p.add_argument('--top-p-checkpoint',type=Path,required=True)
-    p.add_argument('--adapter-checkpoint',type=Path,required=True)
+    p.add_argument('--adapter-checkpoint',type=Path)
     p.add_argument('--allow-adapter-override',action='store_true')
     p.add_argument('--adapter-step',type=int)
     p.add_argument('--worker-shard',type=int,choices=range(8),required=True)
     p.add_argument('--worker-count',type=int,choices=(1,2,4,8),default=4)
     args=p.parse_args()
+    if args.batch_size < 1: p.error("--batch-size must be positive")
     if args.n==10000 and args.reference_total!=50000:
         p.error('10k screens require --reference-total 50000')
     if args.reference_total is not None and (

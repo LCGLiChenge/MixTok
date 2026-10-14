@@ -79,10 +79,10 @@ Released model files are hosted on [🤗 Chloeeeeeeee123/MixTok](https://hugging
 Download the release files from the repository root after installing the environment:
 
 ```bash
-hf download Chloeeeeeeee123/MixTok --local-dir assets/released
+hf download Chloeeeeeeee123/MixTok --revision 1906bb6281940c152d1e25ea7049858c1a43f603 --local-dir assets/released
 ```
 
-The model-only exports do not contain optimizer or scheduler state. The training and evaluation recipes below use the checkpoint interfaces documented in the component guides; the generation evaluator expects separate Halton, adapter, scorer, and top-p checkpoint paths. See the [generation guide](generation/README.md) for the export format and asset requirements.
+The model-only exports do not contain optimizer or scheduler state. The generation evaluator accepts the public generation bundle directly, together with the public reconstruction EMA weights. Separate Halton, adapter, scorer, and top-p training checkpoints remain supported. See the [generation guide](generation/README.md) for the export format and asset requirements.
 
 ### Training checkpoints and supporting assets
 
@@ -135,6 +135,7 @@ conda create -n mixtok-generation python=3.10 -y
 conda activate mixtok-generation
 python -m pip install -c constraints-h20.txt torch==2.10.0 torchvision==0.25.0
 python -m pip install -r requirements-h20.txt -c constraints-h20.txt
+python -m pip install tensorflow==2.20.0 -c constraints-h20.txt
 python -m h20.preflight --environment-only
 
 mkdir -p ../Halton-MaskGIT
@@ -162,26 +163,25 @@ This screens the checkpoint on 5,000 images. The [full evaluation](#7-evaluation
 
 ### Generate an eight-image smoke run
 
-After preparing the separate component checkpoints, run from `generation/` in the generation environment:
+After downloading the public release and preparing the [supporting TiTok and ADM assets](generation/README.md#evaluate-the-public-release), run from `generation/` in the generation environment:
 
 ```bash
 export MOTAR_ASSETS=../assets/generation
 export MOTAR_RESULTS=../results/generation
 export HALTON_UPSTREAM_ROOT=../Halton-MaskGIT/source
-export TOP_P_CKPT=../assets/reconstruction/epoch_0006_step_00247482.pt
-export TOP_P_SCORER_CKPT=../assets/generation/top_p_scorer/latest.pt
-export CONTINUOUS_ADAPTER_CKPT="$MOTAR_RESULTS/continuous_adapter20k_seed20260918/latest.pt"
+export MIXTOK_GENERATOR=../assets/released/gene/mixtok_gen.pt
+export TOP_P_CKPT=../assets/released/recon/mixtok_recon.pt
 
 python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
-  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
-  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
-  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
+  --checkpoint "$MIXTOK_GENERATOR" \
   --top-p-checkpoint "$TOP_P_CKPT" \
   --output "$MOTAR_RESULTS/continuous_eval_smoke8" \
   --n 8 --workers 1 --allowed-gpus 0
 ```
 
 Use a new output directory for each run. This checks generation and feature extraction; eight images do not produce a reported FID score. TiTok weights must be under `$MOTAR_ASSETS/weights/`, and ADM graph/reference files under `$MOTAR_ASSETS/fid/`.
+
+The public bundle includes the Halton model, embedding adapter, and scorer, so no separate adapter or scorer paths are needed. The evaluator verifies the pinned public file hashes and strict-loads the inference tensors. The public reconstruction export omits its training step and source metadata; these are recorded as unknown in the evaluation manifest and do not affect sampling or FID computation. The ADM evaluator also requires a GPU-capable TensorFlow installation.
 
 ## 5. Method
 
@@ -276,16 +276,14 @@ With the paths from [Quick Start](#4-quick-start), run from `generation/`:
 
 ```bash
 python experiments/continuous_halton_embedding_20260923/parallel_eval_compact.py \
-  --checkpoint "$MOTAR_RESULTS/continuous_halton20k_seed0/latest.pt" \
-  --adapter-checkpoint "$CONTINUOUS_ADAPTER_CKPT" \
-  --scorer-checkpoint "$TOP_P_SCORER_CKPT" \
+  --checkpoint "$MIXTOK_GENERATOR" \
   --top-p-checkpoint "$TOP_P_CKPT" \
   --output "$MOTAR_RESULTS/continuous_eval_paper50k" \
-  --n 50000 --workers 4 --allowed-gpus 0,1,2,3 \
+  --n 50000 --batch-size 64 --workers 1 --allowed-gpus 0 \
   --stage1-guidance-scale 4.5 --cfg-w 3.0
 ```
 
-The default sampling recipe uses **8 steps per stage**, Stage 1 guidance **4.5**, Stage 2 CFG **3.0**, scorer temperature **2**, and router top-p **0.75**. A single run produces one 50k evaluation; the result table reports the project's four-run average. See the [generation guide](generation/README.md) for worker counts, cache identity checks, and checkpoint export details.
+The default sampling recipe uses **8 steps per stage**, Stage 1 guidance **4.5**, Stage 2 CFG **3.0**, scorer temperature **2**, and router top-p **0.75**. The generation batch size defaults to 8; the example uses 64. Changing it changes the RNG batches and sampled images, so record the actual batch size with each result. FP32 feature decoding and ADM feature extraction use chunks of at most eight images. A single run produces one 50k evaluation; the result table reports the project's four-run average. See the [generation guide](generation/README.md) for worker counts, cache identity checks, and checkpoint export details.
 
 ## 8. Repository Layout
 
