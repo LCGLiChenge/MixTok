@@ -15,13 +15,14 @@ import time
 from bert2d.paths import ASSETS,EVALUATOR,atomic_json,output_path,sha256
 
 
-def batch_plan(n,reference_total=None):
+def batch_plan(n,reference_total=None,batch_size=8):
     import numpy as np
+    if batch_size < 1: raise ValueError("positive batch size required")
     total=n if reference_total is None else reference_total
     if reference_total is not None and (total!=50000 or n not in (8,32,64,5000,10000)):
         raise ValueError('50k-prefix mode supports 8/32/64 smoke or 5k/10k')
-    batches=[ids[offset:offset+8] for ids in np.array_split(np.arange(total),4)
-             for offset in range(0,len(ids),8)]
+    batches=[ids[offset:offset+batch_size] for ids in np.array_split(np.arange(total),4)
+             for offset in range(0,len(ids),batch_size)]
     if reference_total is None:
         return batches
     prefix=[ids for ids in batches if int(ids[0])<n]
@@ -30,9 +31,9 @@ def batch_plan(n,reference_total=None):
     return prefix
 
 
-def worker_batches(n,workers,worker,reference_total=None):
+def worker_batches(n,workers,worker,reference_total=None,batch_size=8):
     import numpy as np
-    batches=batch_plan(n,reference_total)
+    batches=batch_plan(n,reference_total,batch_size)
     if not 0<=worker<workers or workers>len(batches): raise ValueError('invalid worker plan')
     return [batches[i] for i in np.array_split(np.arange(len(batches)),workers)[worker]]
 
@@ -58,11 +59,11 @@ def choose_gpus(allowed,count=8):
     return [uuid for _,uuid in sorted(cards,reverse=True)[:count]]
 
 
-def verify_shards(out,n,digest,workers=8,reference_total=None):
+def verify_shards(out,n,digest,workers=8,reference_total=None,batch_size=8):
     import numpy as np
     manifests=[];receipts=[]
     for shard in range(workers):
-        ids=np.concatenate(worker_batches(n,workers,shard,reference_total))
+        ids=np.concatenate(worker_batches(n,workers,shard,reference_total,batch_size))
         receipt=json.loads((out/f'shard{shard}.json').read_text())
         manifest=json.loads((out/f'manifest_shard{shard}.json').read_text())
         if (receipt['status']!='complete' or receipt['checkpoint_sha256']!=digest
@@ -98,7 +99,7 @@ def verify_shards(out,n,digest,workers=8,reference_total=None):
 
 def run(args):
     if args.n not in (8,32,64,5000,10000,50000): raise ValueError('unsupported evaluation size')
-    worker_count=min(args.workers,len(batch_plan(args.n,args.reference_total)))
+    worker_count=min(args.workers,len(batch_plan(args.n,args.reference_total,args.batch_size)))
     out=output_path(args.output)
     out.mkdir(parents=True,exist_ok=False)
     started=time.monotonic()
@@ -111,7 +112,7 @@ def run(args):
         time.sleep(10)
     atomic_json(out/'parallel_config.json',dict(workers=worker_count,gpus=gpus,checkpoint_sha256=digest,
                 source_sha256=sha256(Path(__file__)),seed=args.seed,n=args.n,
-                batch=8,logical_shards=4,stage2_steps=args.stage2_steps,
+                batch=args.batch_size,logical_shards=4,stage2_steps=args.stage2_steps,
                 screen_batch_plan_total=(args.reference_total or args.n),
                 stage1_guidance_scale=args.stage1_guidance_scale,
                 stage1_randomize_temperature=args.stage1_randomize_temperature,
@@ -124,7 +125,7 @@ def run(args):
                 adapter_checkpoint=(str(args.adapter_checkpoint.resolve()) if args.adapter_checkpoint else None),
                 scorer_checkpoint=(str(args.scorer_checkpoint.resolve()) if args.scorer_checkpoint else None),
                 top_p_checkpoint=(str(args.top_p_checkpoint.resolve()) if args.top_p_checkpoint else None),
-                sampling_unchanged=(args.stage1_guidance_scale==4.5 and
+                sampling_unchanged=(args.batch_size==8 and args.stage1_guidance_scale==4.5 and
                                     args.stage1_randomize_temperature==9.5 and
                                     args.context_scale==1.0 and
                                     args.reference_total is None and
@@ -140,7 +141,7 @@ def run(args):
             log=(out/f'worker_shard{shard}.log').open('w')
             command=[sys.executable,str(Path(__file__).with_name('eval_worker_compact.py')),
                      '--checkpoint',str(args.checkpoint),'--output',str(out),'--n',str(args.n),
-                     '--seed',str(args.seed),'--cfg-w',str(args.cfg_w),
+                     '--seed',str(args.seed),'--batch-size',str(args.batch_size),'--cfg-w',str(args.cfg_w),
                      '--stage1-guidance-scale',str(args.stage1_guidance_scale),
                      '--stage1-randomize-temperature',str(args.stage1_randomize_temperature),
                      '--context-scale',str(args.context_scale),
@@ -178,7 +179,7 @@ def run(args):
             if child.poll() is None: child.terminate()
         for child,log in workers:
             child.wait();log.close()
-    manifests,receipts=verify_shards(out,args.n,digest,worker_count,args.reference_total)
+    manifests,receipts=verify_shards(out,args.n,digest,worker_count,args.reference_total,args.batch_size)
     import numpy as np
     histogram=np.sum([np.asarray(row['route_counts']['histogram'],dtype=np.int64)
                       for row in receipts],axis=0)
@@ -232,6 +233,7 @@ def cli():
     p.add_argument('--reference-total',type=int,choices=(50000,),
                    help='generate exact first n images using 50k logical RNG batches')
     p.add_argument('--seed',type=int,default=4)
+    p.add_argument('--batch-size',type=int,default=8,help='generation batch size; changing it changes RNG batches')
     p.add_argument('--cfg-w',type=float,default=3.0)
     p.add_argument('--stage1-guidance-scale',type=float,default=4.5,
                    help='TiTok 1D MaskGIT guidance scale; paper value is 4.5')
@@ -244,7 +246,7 @@ def cli():
                    help='multiply sampled 2D logits; conventional temperature is its reciprocal')
     p.add_argument('--router-p',type=float,default=0.75,
                    help='inference-time top-p refinement mass; training used 0.75')
-    p.add_argument('--scorer-checkpoint',type=Path,required=True)
+    p.add_argument('--scorer-checkpoint',type=Path)
     p.add_argument('--top-p-checkpoint',type=Path,required=True)
     p.add_argument('--adapter-checkpoint',type=Path)
     p.add_argument('--allow-adapter-override',action='store_true',
@@ -256,6 +258,7 @@ def cli():
     # trainer's old one-GPU env is not the complete task GPU allocation.
     p.add_argument('--allowed-gpus',default=os.environ.get('MOTAR_EVAL_ALLOWED_GPUS','0,1,2,3,4,5,6,7'))
     args=p.parse_args()
+    if args.batch_size < 1: p.error("--batch-size must be positive")
     if args.n==10000 and args.reference_total!=50000:
         p.error('10k screens require --reference-total 50000')
     if args.reference_total is not None and args.n not in (8,32,64,5000,10000):

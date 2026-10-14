@@ -17,13 +17,14 @@ from h20_joint.mot_latent import TiTokToLlamaGenLatentDecoder
 TITOK_SHA256 = "b8f0bf61e9ee1791d8b76fa723bdcb2c85a039a7d027e597f685db492935c31f"
 TOP_P_SHA256 = "61e6e22acf5e4f7dcf44158518e4061a3fc9d6ca481ddc753e97f822546cb819"
 TOP_P_INFERENCE_SHA256 = "e3806ee8011101a1f6bda002d18f2dd953f99b3dbfdf98d1be3126f1cb85547a"
+PUBLIC_SHA256 = "457be008836e3f3702327795bb1953250f0032a0b35f74e26e6ffce9ef50e82e"
 INFERENCE_PREFIXES = ("latent_decoder.", "llamagen_vq.")
 
 
 def verified_top_p_artifact(path: Path) -> str:
     """Return the artifact hash after checking its known full/EMA-export identity."""
     digest = sha256(path)
-    if digest not in (TOP_P_SHA256, TOP_P_INFERENCE_SHA256):
+    if digest not in (TOP_P_SHA256, TOP_P_INFERENCE_SHA256, PUBLIC_SHA256):
         raise RuntimeError("top-p EMA checkpoint identity differs")
     return digest
 
@@ -94,6 +95,12 @@ class TopPFrozenAssets:
                     or len(state) != 661
                     or any(not key.startswith(INFERENCE_PREFIXES) for key in state)):
                 raise RuntimeError("invalid inference-only top-p EMA export")
+        if top_p_hash == PUBLIC_SHA256:
+            inference = {k:v for k,v in state.items() if k.startswith(INFERENCE_PREFIXES)}
+            if (set(checkpoint) != {"model_ema"} or len(state) != 692
+                    or len(inference) != 661
+                    or sum(v.numel() for v in inference.values()) != 377198731):
+                raise RuntimeError("invalid public tokenizer export structure")
         counts = {}
         for prefix, module in (("latent_decoder.", latent_decoder),
                                ("llamagen_vq.", vq)):
@@ -101,8 +108,9 @@ class TopPFrozenAssets:
                       if key.startswith(prefix)}
             module.load_state_dict(subset, strict=True)
             counts[prefix[:-1]] = len(subset)
-        step = int(checkpoint.get("step", -1))
-        if step != 247482:
+        public_export = top_p_hash == PUBLIC_SHA256
+        step = None if public_export else int(checkpoint.get("step", -1))
+        if not public_export and step != 247482:
             raise RuntimeError("top-p EMA checkpoint step differs")
         del checkpoint, state, subset
 
@@ -119,7 +127,8 @@ class TopPFrozenAssets:
             "top_p_checkpoint": str(top_p_ckpt.resolve()),
             "top_p_state_key": "model_ema",
             "top_p_step": step,
-            "top_p_checkpoint_sha256": TOP_P_SHA256,
+            "top_p_checkpoint_sha256": top_p_hash if public_export else TOP_P_SHA256,
+            "training_source_identity_verified": not public_export,
             "top_p_artifact_sha256": top_p_hash,
             "loaded_tensors": counts,
             "native_titok_checkpoint": str(native_path.resolve()),
